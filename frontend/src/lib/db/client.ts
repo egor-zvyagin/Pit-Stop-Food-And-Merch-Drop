@@ -119,7 +119,26 @@ let docClient: DynamoDBDocumentClient | null = null;
 
 if (isAwsConfigured) {
   try {
-    const rawClient = new DynamoDBClient({ region: REGION });
+    const accessKeyId =
+      process.env.DYNAMO_ACCESS_KEY_ID ||
+      process.env.APP_AWS_ACCESS_KEY_ID ||
+      process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey =
+      process.env.DYNAMO_SECRET_ACCESS_KEY ||
+      process.env.APP_AWS_SECRET_ACCESS_KEY ||
+      process.env.AWS_SECRET_ACCESS_KEY;
+
+    const rawClient = new DynamoDBClient({
+      region: REGION,
+      ...(accessKeyId && secretAccessKey
+        ? {
+            credentials: {
+              accessKeyId,
+              secretAccessKey,
+            },
+          }
+        : {}),
+    });
     docClient = DynamoDBDocumentClient.from(rawClient);
   } catch (err) {
     console.warn('Failed to initialize AWS DynamoDB client, falling back to local store:', err);
