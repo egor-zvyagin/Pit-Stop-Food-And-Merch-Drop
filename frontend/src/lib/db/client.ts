@@ -113,11 +113,7 @@ const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'pitstop_data';
 const REGION = process.env.AWS_REGION || 'ap-southeast-2';
 
 const isAwsConfigured =
-  process.env.USE_LOCAL_STORAGE !== 'true' &&
-  (Boolean(process.env.AWS_ACCESS_KEY_ID) ||
-    Boolean(process.env.AWS_PROFILE) ||
-    Boolean(process.env.AWS_EXECUTION_ENV) ||
-    Boolean(process.env.AWS_SESSION_TOKEN));
+  process.env.USE_LOCAL_STORAGE !== 'true';
 
 let docClient: DynamoDBDocumentClient | null = null;
 
