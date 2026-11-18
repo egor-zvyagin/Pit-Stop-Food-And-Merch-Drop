@@ -3,17 +3,17 @@
 **Order ahead. Pick up fast. Get back to the on-track action.**  
 *Commissioned for the Australian Grand Prix Corporation (AGPC) Fan Experience Innovation Project.*
 
-[![Live Staging](https://img.shields.io/badge/AWS_Amplify-Live_Staging-FF9900?style=for-the-badge&logo=amazon-aws)](https://develop.d377mhe4uece5s.amplifyapp.com/)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14.x-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
 [![Mapbox GL](https://img.shields.io/badge/Mapbox_GL-Interactive_Maps-000000?style=for-the-badge&logo=mapbox)](https://www.mapbox.com/)
 [![Ed25519 Cryptography](https://img.shields.io/badge/Ed25519-Offline_Verify-green?style=for-the-badge&logo=gnupg)](./crypto-poc)
+[![AWS Serverless](https://img.shields.io/badge/AWS-ap--southeast--2-FF9900?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/)
 
 ---
 
 ## Live Deployment & Links
-* **Live AWS Amplify Staging Environment:** [https://develop.d377mhe4uece5s.amplifyapp.com/](https://develop.d377mhe4uece5s.amplifyapp.com/)
+* **Target Cloud Environment:** AWS (`ap-southeast-2` Sydney) — Serverless Next.js 14 App Router + DynamoDB
 * **Project Type:** Next.js Full-Stack Web Application & Serverless Cloud Architecture
 * **Target Event:** Formula 1® Australian Grand Prix (Albert Park Circuit, Melbourne)
 * **Standalone Crypto Benchmark:** [`/crypto-poc/ed25519_offline_verifier_demo.ts`](./crypto-poc/ed25519_offline_verifier_demo.ts)
@@ -92,7 +92,7 @@ npx ts-node crypto-poc/ed25519_offline_verifier_demo.ts
 ### 2. Clone Repository
 ```bash
 git clone https://github.com/egor-zvyagin/Pit-Stop-Food-And-Merch-Drop.git
-cd Pit-Stop-Food-And-Merch-Drop/pit-stop-food-and-merch-drop
+cd Pit-Stop-Food-And-Merch-Drop/frontend
 ```
 
 ### 3. Install Dependencies
@@ -101,10 +101,9 @@ npm install
 ```
 
 ### 4. Configure Environment Variables
-Create a `.env.local` file inside `pit-stop-food-and-merch-drop`:
+Create a `.env.local` file inside `frontend`:
 ```bash
-NEXT_PUBLIC_MAPBOX_TOKEN=your_mapbox_public_token
-NEXT_PUBLIC_API_BASE_URL=https://develop.d377mhe4uece5s.amplifyapp.com/api
+cp .env.example .env.local
 ```
 
 ### 5. Launch Local Development Server

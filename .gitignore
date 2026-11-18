@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Next.js build
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Local Environment Variables
+.env*.local
+frontend/.env*.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# System & OS
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+
+  /* Surfaces */
+  --color-page-background: #F5F5F7;
+  --color-surface: #FFFFFF;
+  --color-surface-selected: #FFF5F5;
+
+  /* Borders */
+  --color-border: #E5E5EA;
+
+  /* Text */
+  --color-text-primary: #050505;
+  --color-text-muted: #6B6B72;
+  --color-text-on-primary: #FFFFFF;
+
+  /* Brand Actions */
+  --color-brand-primary: #E10600;
+  --color-action-disabled: #CCCCCC;
+
+  /* Status */
+  --color-status-success: #00D67A;
+  --color-status-danger: #FF3B30;
+  --color-status-info: #2F80FF;
+  --color-status-warning: #C8A800;
+  --color-status-neutral: #6B6B72;
+  --color-voucher-applied-text: #166534;
+
+  /* Status backgrounds - 10% */
+  --color-status-success-bg: rgb(0 214 122 / 10%);
+  --color-status-danger-bg: rgb(255 59 48 / 10%);
+  --color-status-info-bg: rgb(47 128 255 / 10%);
+  --color-status-warning-bg: rgb(200 168 0 / 10%);
+  --color-status-brand-bg: rgb(225 6 0 / 10%);
+  --color-status-neutral-bg: rgb(107 107 114 / 10%);
+
+  /* Map */
+  --color-track-background: #EAEAEC;
+  --color-track-line: #D0D0D5;
+
+  /* Widths */
+  --app-max-width: 430px;
+  --app-header-height: 57px;
+  --bottom-nav-height: 82px;
+
+  /* Collect warning states */
+  --color-status-warning-surface: #FFFBEB;
+  --color-status-warning-text: #7A5800;
+  --color-status-warning-muted: #A07000;
+
+  /* Collect success states */
+  --color-status-success-surface: #F0FDF4;
+  --color-status-success-text: #166534;
+  --color-status-success-muted: #16A34A;
+  --color-status-success-soft-border: #BBF7D0;
+
+  /* Rewards */
+  --color-rewards-progress: #2F80FF;
+
+  --color-rewards-progress-surface: rgba(47, 128, 255, 0.09);
+  --color-rewards-progress-border: rgba(47, 128, 255, 0.25);
+
+  --color-rewards-earned-surface: rgba(225, 6, 0, 0.09);
+  --color-rewards-earned-border: rgba(225, 6, 0, 0.25);
+
+  /* Reward completion callout */
+  --color-reward-background: #FFF9E6;
+  --color-reward-border: #F0D060;
+  --color-reward-text: #7A5800;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
