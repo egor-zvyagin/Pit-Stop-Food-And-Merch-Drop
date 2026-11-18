@@ -100,7 +100,10 @@ const REGION = process.env.AWS_REGION || 'ap-southeast-2';
 
 const isAwsConfigured =
   process.env.USE_LOCAL_STORAGE !== 'true' &&
-  Boolean(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
+  (Boolean(process.env.AWS_ACCESS_KEY_ID) ||
+    Boolean(process.env.AWS_PROFILE) ||
+    Boolean(process.env.AWS_EXECUTION_ENV) ||
+    Boolean(process.env.AWS_SESSION_TOKEN));
 
 let docClient: DynamoDBDocumentClient | null = null;
 
@@ -121,6 +124,26 @@ export const db = {
   isUsingDynamoDB: Boolean(docClient),
 
   // --- CONCESSION ITEMS ---
+  async saveItem(item: MenuItem): Promise<void> {
+    if (docClient) {
+      try {
+        await docClient.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              PK: `ITEM#${item.id}`,
+              SK: 'METADATA',
+              ...item,
+            },
+          })
+        );
+      } catch (err) {
+        console.warn('DynamoDB saveItem error:', err);
+      }
+    }
+    inMemoryStore.items.set(item.id, item);
+  },
+
   async getItems(): Promise<MenuItem[]> {
     if (docClient) {
       try {
@@ -293,13 +316,85 @@ export const db = {
   },
 
   // --- STATIONS ---
+  async saveStation(station: PitStop): Promise<void> {
+    if (docClient) {
+      try {
+        await docClient.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              PK: `STATION#${station.id}`,
+              SK: 'METADATA',
+              ...station,
+            },
+          })
+        );
+      } catch (err) {
+        console.warn('DynamoDB saveStation error:', err);
+      }
+    }
+    inMemoryStore.stations.set(station.id, station);
+  },
+
   async getStations(): Promise<PitStop[]> {
+    if (docClient) {
+      try {
+        const result = await docClient.send(
+          new ScanCommand({
+            TableName: TABLE_NAME,
+            FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
+            ExpressionAttributeValues: {
+              ':prefix': 'STATION#',
+              ':sk': 'METADATA',
+            },
+          })
+        );
+        if (result.Items && result.Items.length > 0) {
+          return result.Items as PitStop[];
+        }
+      } catch (err) {
+        console.warn('DynamoDB getStations error, using fallback:', err);
+      }
+    }
     return Array.from(inMemoryStore.stations.values());
   },
 
   // --- TICKETS ---
+  async saveTicket(ticket: TicketProfile): Promise<void> {
+    if (docClient) {
+      try {
+        await docClient.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              PK: `TICKET#${ticket.ticketCode}`,
+              SK: 'PROFILE',
+              ...ticket,
+            },
+          })
+        );
+      } catch (err) {
+        console.warn('DynamoDB saveTicket error:', err);
+      }
+    }
+    inMemoryStore.tickets.set(ticket.ticketCode, ticket);
+  },
+
   async getTicket(ticketCode: string): Promise<TicketProfile | undefined> {
     const clean = ticketCode.trim().toUpperCase();
+    if (docClient) {
+      try {
+        const result = await docClient.send(
+          new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { PK: `TICKET#${clean}`, SK: 'PROFILE' },
+          })
+        );
+        if (result.Item) return result.Item as TicketProfile;
+      } catch (err) {
+        console.warn('DynamoDB getTicket error, using fallback:', err);
+      }
+    }
     if (inMemoryStore.tickets.has(clean)) {
       return inMemoryStore.tickets.get(clean);
     }

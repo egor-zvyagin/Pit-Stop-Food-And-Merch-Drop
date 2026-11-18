@@ -14,17 +14,35 @@ async function seedDatabase() {
   // 1. Seed Concession Items
   console.log(`[1] Seeding ${MENU_ITEMS.length} concession items with photographic assets...`);
   for (const item of MENU_ITEMS) {
+    await db.saveItem(item);
     console.log(`    - [${item.category.toUpperCase()}] ${item.name} ($${item.price.toFixed(2)}) - ${item.prepTime}`);
   }
 
   // 2. Seed Pod Stations
   console.log(`\n[2] Seeding ${PIT_STOPS.length} Trackside Concession Pods across Albert Park...`);
   for (const pod of PIT_STOPS) {
+    await db.saveStation(pod);
     console.log(`    - Pod ${pod.id}: ${pod.name} (${pod.distance}, Queue: ${pod.status})`);
   }
 
   // 3. Seed Demo Grand Prix Fan Tickets
   console.log('\n[3] Seeding Grand Prix Tickets & Fan Profiles...');
+  await db.saveTicket({
+    ticketCode: 'GP-3820-X',
+    verified: true,
+    holderName: 'Egor Zvyagin',
+    ticketType: '4-Day Grandstand Pass',
+    viewingArea: {
+      grandstand: 'Clark Grandstand',
+      turn: 'Turn 9',
+      seat: 'Row H, Seat 14',
+      nearestGate: 'Gate 3 (Canterbury Rd)',
+      recommendedDropStation: 'M2',
+    },
+    loyaltyTier: 'VIP Fan',
+    loyaltyPoints: 1850,
+  });
+
   const ticket = await db.getTicket('GP-3820-X');
   if (ticket) {
     console.log(`    - Verified Ticket: ${ticket.ticketCode} (${ticket.holderName})`);
