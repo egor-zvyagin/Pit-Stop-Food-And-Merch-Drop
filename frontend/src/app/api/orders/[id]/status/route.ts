@@ -63,19 +63,10 @@ export async function PATCH(
   try {
     const { id } = params;
 
-    // Check X-Vendor-Pin authentication header
-    const auth = validateVendorAuth(request);
-    if (!auth.authenticated) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: auth.error || 'Unauthorized: Invalid or missing X-Vendor-Pin header',
-        },
-        { status: 401 }
-      );
-    }
-
-    const body = (await request.json()) as { status: OrderRecord['status'] };
+    const body = (await request.json().catch(() => ({}))) as {
+      status?: OrderRecord['status'];
+      pinCode?: string;
+    };
 
     if (!id || !body.status) {
       return NextResponse.json(
@@ -113,6 +104,33 @@ export async function PATCH(
         { success: false, error: `Order '${id}' not found` },
         { status: 404 }
       );
+    }
+
+    // Check X-Vendor-Pin authentication header
+    const auth = validateVendorAuth(request);
+
+    // If not authenticated with vendor PIN, check if this is a legitimate fan self-collection
+    if (!auth.authenticated) {
+      const clientPin =
+        request.headers.get('x-order-pin') ||
+        body.pinCode ||
+        '';
+
+      const isFanSelfCollection =
+        normalizedStatus === 'COMPLETED' &&
+        (existing.status === 'READY_FOR_PICKUP' ||
+          existing.status === 'COMPLETED' ||
+          (clientPin && clientPin === existing.pinCode));
+
+      if (!isFanSelfCollection) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: auth.error || 'Unauthorized: Invalid or missing X-Vendor-Pin header',
+          },
+          { status: 401 }
+        );
+      }
     }
 
     // When status transitions to COMPLETED, auto-award loyalty points idempotently

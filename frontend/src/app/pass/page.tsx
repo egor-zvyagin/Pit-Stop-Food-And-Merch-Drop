@@ -103,7 +103,17 @@ export default function OrderPassPage() {
             else if (rawStatus === "COMPLETED" || rawStatus === "COLLECTED")
               collectStatus = COLLECT_STATUS.COMPLETED;
 
-            if (orderContextOrder.status !== collectStatus) {
+            const STATUS_RANKS: Record<string, number> = {
+              [COLLECT_STATUS.RECEIVED]: 1,
+              [COLLECT_STATUS.PREPARING]: 2,
+              [COLLECT_STATUS.READY]: 3,
+              [COLLECT_STATUS.COMPLETED]: 4,
+            };
+
+            const currentRank = STATUS_RANKS[orderContextOrder.status] || 0;
+            const nextRank = STATUS_RANKS[collectStatus] || 0;
+
+            if (nextRank > currentRank) {
               updateActiveOrderStatus(collectStatus);
             }
           }

@@ -167,19 +167,18 @@ describe('Serverless API Integration Test Suite', () => {
     const validData = await validRes.json();
     expect(validData.success).toBe(true);
 
-    // 4. Mark COMPLETED -> awards loyalty points
-    const completeReq = new Request(`http://localhost:3000/api/orders/${createdOrderId}/status`, {
+    // 4. Fan self-collection without X-Vendor-Pin succeeds when order is READY_FOR_PICKUP
+    const fanCompleteReq = new Request(`http://localhost:3000/api/orders/${createdOrderId}/status`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'X-Vendor-Pin': '2026',
       },
       body: JSON.stringify({ status: 'COMPLETED' }),
     });
-    const completeRes = await patchOrderStatusRoute(completeReq, { params: { id: createdOrderId } });
-    expect(completeRes.status).toBe(200);
-    const completeData = await completeRes.json();
-    expect(completeData.order.status).toBe('COMPLETED');
+    const fanCompleteRes = await patchOrderStatusRoute(fanCompleteReq, { params: { id: createdOrderId } });
+    expect(fanCompleteRes.status).toBe(200);
+    const fanCompleteData = await fanCompleteRes.json();
+    expect(fanCompleteData.order.status).toBe('COMPLETED');
   });
 
   it('GET /api/rewards returns ticket points and badges', async () => {

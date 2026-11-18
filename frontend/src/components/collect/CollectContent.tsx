@@ -41,8 +41,8 @@ export default function CollectContent() {
         );
     }
 
-    // Demo Mode simulates the backend awarding rewards after collection
-    function handleOrderCollected(order: ActiveOrder) {
+    // Fan confirms pickup of their locker order
+    async function handleOrderCollected(order: ActiveOrder) {
         if (demoMode) {
             awardOrderPoints(
                 order.reference,
@@ -51,6 +51,24 @@ export default function CollectContent() {
         }
 
         updateActiveOrderStatus(COLLECT_STATUS.COMPLETED);
+
+        // Notify server that the order was collected, transitioning DB state and awarding loyalty points
+        try {
+            const orderId = order.orderId || order.reference || order.collectionCode;
+            const pin = order.collectionCode || order.pinCode;
+            if (orderId) {
+                await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(pin ? { 'X-Order-Pin': String(pin) } : {}),
+                    },
+                    body: JSON.stringify({ status: 'COMPLETED', pinCode: pin }),
+                });
+            }
+        } catch {
+            // Offline resilience: silent fallback without blocking UI
+        }
     }
 
     // Get the Pit Stop 

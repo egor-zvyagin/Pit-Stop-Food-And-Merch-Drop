@@ -32,7 +32,19 @@ export default function Collect() {
             newStatus = COLLECT_STATUS.COMPLETED;
           }
 
-          if (newStatus !== activeOrder.status) {
+          const STATUS_RANKS: Record<string, number> = {
+            [COLLECT_STATUS.RECEIVED]: 1,
+            [COLLECT_STATUS.PREPARING]: 2,
+            [COLLECT_STATUS.READY]: 3,
+            [COLLECT_STATUS.COMPLETED]: 4,
+          };
+
+          const currentRank = STATUS_RANKS[activeOrder.status] || 0;
+          const nextRank = STATUS_RANKS[newStatus] || 0;
+
+          // Only advance status forward (e.g. RECEIVED -> PREPARING -> READY -> COMPLETED),
+          // never revert backwards if an order was completed by the fan or vendor.
+          if (nextRank > currentRank) {
             updateActiveOrderStatus(newStatus);
           }
         }
