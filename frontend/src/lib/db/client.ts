@@ -112,12 +112,17 @@ function initInMemoryDefaults() {
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'pitstop_data';
 const REGION = process.env.AWS_REGION || 'ap-southeast-2';
 
-const isAwsConfigured =
-  process.env.USE_LOCAL_STORAGE !== 'true';
+let cachedDocClient: DynamoDBDocumentClient | null = null;
+let clientInitialized = false;
 
-let docClient: DynamoDBDocumentClient | null = null;
+export function getDocClient(): DynamoDBDocumentClient | null {
+  if (process.env.USE_LOCAL_STORAGE === 'true') {
+    return null;
+  }
+  if (clientInitialized) {
+    return cachedDocClient;
+  }
 
-if (isAwsConfigured) {
   try {
     const accessKeyId =
       process.env.DYNAMO_ACCESS_KEY_ID ||
@@ -128,21 +133,27 @@ if (isAwsConfigured) {
       process.env.APP_AWS_SECRET_ACCESS_KEY ||
       process.env.AWS_SECRET_ACCESS_KEY;
 
-    const rawClient = new DynamoDBClient({
-      region: REGION,
-      ...(accessKeyId && secretAccessKey
-        ? {
-            credentials: {
-              accessKeyId,
-              secretAccessKey,
-            },
-          }
-        : {}),
-    });
-    docClient = DynamoDBDocumentClient.from(rawClient);
+    if (accessKeyId && secretAccessKey) {
+      const rawClient = new DynamoDBClient({
+        region: REGION,
+        credentials: {
+          accessKeyId,
+          secretAccessKey,
+        },
+      });
+      cachedDocClient = DynamoDBDocumentClient.from(rawClient);
+    } else {
+      // In local development or environments without static keys, attempt default chain
+      const rawClient = new DynamoDBClient({ region: REGION });
+      cachedDocClient = DynamoDBDocumentClient.from(rawClient);
+    }
+    clientInitialized = true;
+    return cachedDocClient;
   } catch (err) {
     console.warn('Failed to initialize AWS DynamoDB client, falling back to local store:', err);
-    docClient = null;
+    clientInitialized = true;
+    cachedDocClient = null;
+    return null;
   }
 }
 
@@ -206,13 +217,16 @@ const REWARDS_VOUCHERS_CATALOG: VoucherRecord[] = [
 ];
 
 export const db = {
-  isUsingDynamoDB: Boolean(docClient),
+  get isUsingDynamoDB(): boolean {
+    return Boolean(getDocClient());
+  },
 
   // --- CONCESSION ITEMS ---
   async saveItem(item: CatalogItem): Promise<void> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
@@ -230,9 +244,10 @@ export const db = {
   },
 
   async getItems(): Promise<CatalogItem[]> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new ScanCommand({
             TableName: TABLE_NAME,
             FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
@@ -253,9 +268,10 @@ export const db = {
   },
 
   async getItemById(id: string): Promise<CatalogItem | undefined> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new GetCommand({
             TableName: TABLE_NAME,
             Key: { PK: `ITEM#${id}`, SK: 'METADATA' },
@@ -282,9 +298,10 @@ export const db = {
       paymentStatus,
     };
 
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
@@ -312,9 +329,10 @@ export const db = {
       return inMemoryStore.orders.get(cleanId);
     }
 
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new GetCommand({
             TableName: TABLE_NAME,
             Key: { PK: `ORDER#${cleanId}`, SK: 'METADATA' },
@@ -337,9 +355,10 @@ export const db = {
     }
 
     // 2. DynamoDB GSI2 Query (GSI2PK = PIN#<pinCode>) with scan fallback
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new QueryCommand({
             TableName: TABLE_NAME,
             IndexName: 'GSI2',
@@ -355,7 +374,7 @@ export const db = {
       } catch (gsiErr) {
         console.warn('GSI2 query failed, falling back to ScanCommand:', gsiErr);
         try {
-          const scanResult = await docClient.send(
+          const scanResult = await client.send(
             new ScanCommand({
               TableName: TABLE_NAME,
               FilterExpression: 'pinCode = :pin AND begins_with(PK, :prefix)',
@@ -390,9 +409,10 @@ export const db = {
       inMemoryStore.orders.set(cleanId, existing);
     }
 
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new UpdateCommand({
             TableName: TABLE_NAME,
             Key: { PK: `ORDER#${cleanId}`, SK: 'METADATA' },
@@ -426,9 +446,10 @@ export const db = {
       inMemoryStore.orders.set(cleanId, existing);
     }
 
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new UpdateCommand({
             TableName: TABLE_NAME,
             Key: { PK: `ORDER#${cleanId}`, SK: 'METADATA' },
@@ -448,9 +469,10 @@ export const db = {
   },
 
   async getAllOrders(): Promise<OrderRecord[]> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new ScanCommand({
             TableName: TABLE_NAME,
             FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
@@ -474,9 +496,10 @@ export const db = {
     if (ticketCode) {
       const cleanTicket = ticketCode.trim().toUpperCase();
       // Try GSI1 Query by ticketCode
-      if (docClient) {
+      const client = getDocClient();
+      if (client) {
         try {
-          const result = await docClient.send(
+          const result = await client.send(
             new QueryCommand({
               TableName: TABLE_NAME,
               IndexName: 'GSI1',
@@ -506,9 +529,10 @@ export const db = {
 
   // --- STATIONS ---
   async saveStation(station: StationRecord): Promise<void> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
@@ -526,9 +550,10 @@ export const db = {
   },
 
   async getStations(): Promise<StationRecord[]> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new ScanCommand({
             TableName: TABLE_NAME,
             FilterExpression: 'begins_with(PK, :prefix) AND SK = :sk',
@@ -550,9 +575,10 @@ export const db = {
 
   // --- TICKETS ---
   async saveTicket(ticket: TicketProfile): Promise<void> {
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        await docClient.send(
+        await client.send(
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
@@ -571,9 +597,10 @@ export const db = {
 
   async getTicket(ticketCode: string): Promise<TicketProfile | undefined> {
     const clean = ticketCode.trim().toUpperCase();
-    if (docClient) {
+    const client = getDocClient();
+    if (client) {
       try {
-        const result = await docClient.send(
+        const result = await client.send(
           new GetCommand({
             TableName: TABLE_NAME,
             Key: { PK: `TICKET#${clean}`, SK: 'PROFILE' },

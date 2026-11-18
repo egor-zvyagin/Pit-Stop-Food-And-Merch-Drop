@@ -5,10 +5,12 @@ applications:
       phases:
         preBuild:
           commands:
+            - env | grep -E '^(DYNAMODB_|DYNAMO_|ED25519_|VENDOR_|NEXT_PUBLIC_|USE_LOCAL_STORAGE)' > .env.production || true
             - npm ci --prefer-offline --include=dev --legacy-peer-deps
         build:
           commands:
             - npm run build
+            - cp .env.production .next/ || true
       artifacts:
         baseDirectory: .next
         files:
