@@ -5,7 +5,16 @@ applications:
       phases:
         preBuild:
           commands:
-            - env | grep -E '^(DYNAMODB_|DYNAMO_|ED25519_|VENDOR_|NEXT_PUBLIC_|USE_LOCAL_STORAGE)' > .env.production || true
+            - |
+              printf "AWS_REGION=%s\nDYNAMODB_TABLE_NAME=%s\nUSE_LOCAL_STORAGE=%s\nED25519_KEY_ID=%s\nED25519_PRIVATE_KEY_BASE64=%s\nED25519_PUBLIC_KEY_BASE64=%s\nVENDOR_ACCESS_PIN=%s\nNEXT_PUBLIC_APP_URL=%s\n" \
+                "${AWS_REGION:-ap-southeast-2}" \
+                "${DYNAMODB_TABLE_NAME:-pitstop_data}" \
+                "${USE_LOCAL_STORAGE:-false}" \
+                "${ED25519_KEY_ID:-AGPC-2027-KEY-01}" \
+                "${ED25519_PRIVATE_KEY_BASE64}" \
+                "${ED25519_PUBLIC_KEY_BASE64}" \
+                "${VENDOR_ACCESS_PIN:-2026}" \
+                "${NEXT_PUBLIC_APP_URL:-https://main.d3m92lj3xoqgf9.amplifyapp.com}" > .env.production
             - npm ci --prefer-offline --include=dev --legacy-peer-deps
         build:
           commands:

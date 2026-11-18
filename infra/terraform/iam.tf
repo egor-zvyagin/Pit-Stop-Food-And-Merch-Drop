@@ -27,3 +27,31 @@ resource "aws_iam_policy" "dynamodb_access" {
     ]
   })
 }
+
+resource "aws_iam_role" "amplify_ssr_compute_role" {
+  name        = "pitstop-amplify-ssr-compute-role"
+  description = "IAM role assumed by Amplify SSR compute runtime for DynamoDB access"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "amplify.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "amplify_ssr_dynamodb_attachment" {
+  role       = aws_iam_role.amplify_ssr_compute_role.name
+  policy_arn = aws_iam_policy.dynamodb_access.arn
+}
+
+resource "aws_iam_role_policy_attachment" "amplify_ssr_logging_attachment" {
+  role       = aws_iam_role.amplify_ssr_compute_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}

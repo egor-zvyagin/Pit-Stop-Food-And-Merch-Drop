@@ -36,7 +36,7 @@ export default function VendorTerminalPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
-  const [vendorPin, setVendorPin] = useState('2026');
+  const [vendorPin, setVendorPin] = useState('');
 
   // Terminal & Station State
   const [selectedStation, setSelectedStation] = useState('M2');
@@ -66,9 +66,9 @@ export default function VendorTerminalPage() {
   useEffect(() => {
     try {
       const unlocked = sessionStorage.getItem('pitstop_vendor_unlocked');
-      const savedPin = sessionStorage.getItem('pitstop_vendor_pin') || '2026';
+      const savedPin = sessionStorage.getItem('pitstop_vendor_pin') || '';
       setVendorPin(savedPin);
-      if (unlocked === 'true') {
+      if (unlocked === 'true' && savedPin) {
         setIsUnlocked(true);
       }
     } catch {
@@ -79,7 +79,8 @@ export default function VendorTerminalPage() {
   const handleUnlock = (e: React.FormEvent) => {
     e.preventDefault();
     const entered = pinInput.trim();
-    if (entered === '2026' || entered === vendorPin) {
+    if (entered.length >= 4) {
+      setVendorPin(entered);
       setIsUnlocked(true);
       setPinError('');
       try {
@@ -89,7 +90,7 @@ export default function VendorTerminalPage() {
         // Ignore
       }
     } else {
-      setPinError('Invalid Staff PIN. Demo PIN is 2026.');
+      setPinError('Please enter a 4-digit staff PIN.');
     }
   };
 
@@ -352,7 +353,7 @@ export default function VendorTerminalPage() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-Vendor-Pin': vendorPin || '2026',
+          'X-Vendor-Pin': vendorPin,
         },
         body: JSON.stringify({ status: newStatus }),
       });
@@ -362,7 +363,12 @@ export default function VendorTerminalPage() {
         setActiveOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
         fetchOrders();
       } else {
-        alert(data.error || 'Failed to update order status');
+        if (res.status === 401) {
+          setIsUnlocked(false);
+          setPinError('Invalid or expired Staff PIN. Please unlock terminal again.');
+        } else {
+          alert(data.error || 'Failed to update order status');
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Status update failed';
@@ -393,7 +399,7 @@ export default function VendorTerminalPage() {
           <div className="rounded-xl bg-neutral-900/80 border border-neutral-800 p-3 text-xs text-neutral-300">
             <span className="font-bold text-amber-400">DEMO ACCESS:</span> Default staff PIN is{' '}
             <span className="font-mono font-bold text-white bg-neutral-800 px-2 py-0.5 rounded border border-neutral-700">
-              2026
+              configured in server deployment
             </span>
           </div>
 

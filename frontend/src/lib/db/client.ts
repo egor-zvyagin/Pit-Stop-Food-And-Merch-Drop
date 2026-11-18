@@ -124,29 +124,11 @@ export function getDocClient(): DynamoDBDocumentClient | null {
   }
 
   try {
-    const accessKeyId =
-      process.env.DYNAMO_ACCESS_KEY_ID ||
-      process.env.APP_AWS_ACCESS_KEY_ID ||
-      process.env.AWS_ACCESS_KEY_ID;
-    const secretAccessKey =
-      process.env.DYNAMO_SECRET_ACCESS_KEY ||
-      process.env.APP_AWS_SECRET_ACCESS_KEY ||
-      process.env.AWS_SECRET_ACCESS_KEY;
-
-    if (accessKeyId && secretAccessKey) {
-      const rawClient = new DynamoDBClient({
-        region: REGION,
-        credentials: {
-          accessKeyId,
-          secretAccessKey,
-        },
-      });
-      cachedDocClient = DynamoDBDocumentClient.from(rawClient);
-    } else {
-      // In local development or environments without static keys, attempt default chain
-      const rawClient = new DynamoDBClient({ region: REGION });
-      cachedDocClient = DynamoDBDocumentClient.from(rawClient);
-    }
+    // Uses the AWS SDK v3 default credential provider chain:
+    // Automatically resolves IAM role credentials via Amplify SSR Compute Role in production,
+    // or local AWS credentials / profile during development.
+    const rawClient = new DynamoDBClient({ region: REGION });
+    cachedDocClient = DynamoDBDocumentClient.from(rawClient);
     clientInitialized = true;
     return cachedDocClient;
   } catch (err) {

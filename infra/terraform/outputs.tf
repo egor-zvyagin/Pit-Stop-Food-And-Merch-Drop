@@ -13,6 +13,11 @@ output "dynamodb_iam_policy_arn" {
   description = "ARN of IAM policy granting least-privilege access to the DynamoDB table"
 }
 
+output "amplify_ssr_compute_role_arn" {
+  value       = aws_iam_role.amplify_ssr_compute_role.arn
+  description = "ARN of IAM role assumed by Amplify SSR compute runtime"
+}
+
 output "aws_region" {
   value       = var.aws_region
   description = "Target deployment region"
