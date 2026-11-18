@@ -21,3 +21,7 @@ frontend/.env*.local
 .DS_Store
 Thumbs.db
 *.log
+
+# Audit Snapshots
+CODEBASE_SNAPSHOT.md
+
