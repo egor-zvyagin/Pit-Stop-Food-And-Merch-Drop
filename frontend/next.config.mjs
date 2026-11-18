@@ -1,4 +1,9 @@
 /** @type {import('next').NextConfig} */
+const isDev = process.env.NODE_ENV === 'development';
+const allowedOrigin = isDev
+  ? 'http://localhost:3000'
+  : (process.env.NEXT_PUBLIC_APP_URL || 'https://main.d3m92lj3xoqgf9.amplifyapp.com');
+
 const nextConfig = {
   poweredByHeader: false,
   async headers() {
@@ -25,7 +30,7 @@ const nextConfig = {
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
-            value: '*',
+            value: allowedOrigin,
           },
           {
             key: 'Access-Control-Allow-Methods',
@@ -33,7 +38,7 @@ const nextConfig = {
           },
           {
             key: 'Access-Control-Allow-Headers',
-            value: 'Content-Type, Authorization',
+            value: 'Content-Type, Authorization, X-Vendor-Pin, Idempotency-Key',
           },
         ],
       },

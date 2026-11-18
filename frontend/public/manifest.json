@@ -1,0 +1,17 @@
+{
+  "short_name": "Pit Stop",
+  "name": "Pit Stop | Melbourne Grand Prix 2026",
+  "description": "Albert Park F1 Trackside Food & Merch Click & Collect Platform",
+  "icons": [
+    {
+      "src": "/images/PIT_STOP.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#E10600",
+  "background_color": "#0B0E14"
+}

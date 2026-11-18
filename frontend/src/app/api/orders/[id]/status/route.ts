@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db, OrderRecord } from '@/lib/db/client';
+import { validateVendorAuth } from '@/lib/auth/vendorAuth';
 
 export async function GET(
   request: Request,
@@ -30,6 +31,7 @@ export async function GET(
       orderId: order.orderId,
       pinCode: order.pinCode,
       status: order.status,
+      paymentStatus: order.paymentStatus || 'PENDING',
       station: {
         id: order.pickupStationId,
         name: order.pickupStationName,
@@ -44,7 +46,11 @@ export async function GET(
       qrPayload: order.qrPayload,
       signatureBase64: order.signatureBase64,
       items: order.items,
+      subtotal: order.subtotal,
+      discountAmount: order.discountAmount,
+      serviceFee: order.serviceFee,
       total: order.total,
+      loyaltyPointsEarned: order.loyaltyPointsEarned,
       updatedAt: order.updatedAt,
     },
   });
@@ -56,6 +62,19 @@ export async function PATCH(
 ) {
   try {
     const { id } = params;
+
+    // Check X-Vendor-Pin authentication header
+    const auth = validateVendorAuth(request);
+    if (!auth.authenticated) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: auth.error || 'Unauthorized: Invalid or missing X-Vendor-Pin header',
+        },
+        { status: 401 }
+      );
+    }
+
     const body = (await request.json()) as { status: OrderRecord['status'] };
 
     if (!id || !body.status) {
@@ -87,14 +106,27 @@ export async function PATCH(
       );
     }
 
-    const updated = await db.updateOrderStatus(id, normalizedStatus);
-
-    if (!updated) {
+    // Verify order exists before updating
+    const existing = (await db.getOrderById(id)) || (await db.getOrderByPin(id));
+    if (!existing) {
       return NextResponse.json(
         { success: false, error: `Order '${id}' not found` },
         { status: 404 }
       );
     }
+
+    // When status transitions to COMPLETED, auto-award loyalty points idempotently
+    if (normalizedStatus === 'COMPLETED' && existing.status !== 'COMPLETED') {
+      const pointsToAward =
+        existing.loyaltyPointsEarned || Math.round(existing.total * 2);
+      await db.awardTicketPoints(
+        existing.ticketCode,
+        pointsToAward,
+        existing.orderId
+      );
+    }
+
+    const updated = await db.updateOrderStatus(existing.orderId, normalizedStatus);
 
     return NextResponse.json({
       success: true,

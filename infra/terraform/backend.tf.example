@@ -1,0 +1,20 @@
+# Example Terraform S3 Remote Backend Configuration
+#
+# Terraform 1.10+ introduces native state locking support directly in Amazon S3
+# using S3 conditional writes, eliminating the need for a separate DynamoDB lock table.
+#
+# To use this backend:
+# 1. Ensure an S3 bucket exists with versioning and default encryption enabled.
+# 2. Copy this file to backend.tf: cp backend.tf.example backend.tf
+# 3. Replace the bucket name with your actual S3 bucket name.
+# 4. Run `terraform init -migrate-state` to migrate state to S3.
+
+terraform {
+  backend "s3" {
+    bucket       = "pitstop-terraform-state-melbourne-gp"
+    key          = "pitstop/prod/terraform.tfstate"
+    region       = "ap-southeast-2"
+    encrypt      = true
+    use_lockfile = true # Native S3 locking supported in Terraform >= 1.10 (no DynamoDB table required)
+  }
+}

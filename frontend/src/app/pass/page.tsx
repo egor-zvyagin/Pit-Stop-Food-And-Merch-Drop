@@ -1,17 +1,17 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { QRCodeSVG } from 'qrcode.react';
-import { useCart } from '@/context/CartContext';
-import { useOrder } from '@/components/order/OrderProvider';
-import { CheckCircle2, ArrowLeft, Clock, ShieldCheck, Check } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
+import { useOrder } from "@/context/OrderContext";
+import { COLLECT_STATUS, CollectStatus } from "@/data/collectConstantData";
+import { CheckCircle2, ArrowLeft, Clock, ShieldCheck, Check, Loader2 } from "lucide-react";
 
 export default function OrderPassPage() {
-  const { activeOrder: cartOrder } = useCart();
-  const { activeOrder: orderContextOrder } = useOrder();
+  const { activeOrder: orderContextOrder, updateActiveOrderStatus } = useOrder();
   const [offlineSaved, setOfflineSaved] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(240); // 4 min countdown
+  const [liveStatus, setLiveStatus] = useState<string>("READY_FOR_PICKUP");
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -23,48 +23,104 @@ export default function OrderPassPage() {
   const formatCountdown = (totalSec: number) => {
     const mins = Math.floor(totalSec / 60);
     const secs = totalSec % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
-  const defaultOrder = {
-    orderId: 'GP-8821',
-    pinCode: '8821',
-    qrPayload: 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821',
+  const defaultOrder = useMemo(() => ({
+    orderId: "GP-8821",
+    pinCode: "8821",
+    qrPayload: "AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821",
     pickupStation: {
-      id: 'M2',
-      name: 'Pit Stop M2 (Turn 9 East)',
-      locationDetails: 'Directly behind Clark Grandstand, Entry Gate 3',
-      counterNumber: '#04',
+      id: "M2",
+      name: "Pit Stop M2 (Turn 9 East)",
+      locationDetails: "Directly behind Clark Grandstand, Entry Gate 3",
+      counterNumber: "#04",
       walkTimeMins: 2,
     },
     items: [
-      { item: { name: 'APEX BURGER', price: 16.50, image: '/images/burger.jpg' }, quantity: 1 },
-      { item: { name: 'CRAFT LAGER 4-PACK', price: 36.00, image: '/images/beer.jpg' }, quantity: 1 },
+      { item: { name: "APEX BURGER", price: 16.5, image: "/images/burger.jpg" }, quantity: 1 },
+      { item: { name: "CRAFT LAGER 4-PACK", price: 36.0, image: "/images/beer.jpg" }, quantity: 1 },
     ],
-    total: 42.00,
-    status: 'READY_FOR_PICKUP' as const,
-  };
+    total: 42.0,
+    status: "READY_FOR_PICKUP" as const,
+  }), []);
 
-  const order = cartOrder || (orderContextOrder ? {
-    orderId: orderContextOrder.reference,
-    pinCode: orderContextOrder.collectionCode,
-    qrPayload: orderContextOrder.qrPayload || `AGPC1.AGPC-2027-KEY-01.DEMO.${orderContextOrder.reference}`,
-    pickupStation: {
-      id: orderContextOrder.pitStopId,
-      name: `Pit Stop ${orderContextOrder.pitStopId}`,
-      locationDetails: 'Albert Park Concession Pod',
-      counterNumber: orderContextOrder.lockerNumber || '#04',
-      walkTimeMins: 2,
-    },
-    items: orderContextOrder.items.map((i) => ({
-      item: { name: i.itemId.toUpperCase(), price: i.unitPrice, image: '/images/burger.jpg' },
-      quantity: i.quantity,
-    })),
-    total: orderContextOrder.totalPaid,
-    status: 'READY_FOR_PICKUP' as const,
-  } : defaultOrder);
+  const order = useMemo(() => {
+    if (!orderContextOrder) return defaultOrder;
 
-  const fallbackDigits = (order.pinCode.length >= 4 ? order.pinCode : '8821').slice(0, 4).split('');
+    return {
+      orderId: orderContextOrder.reference || orderContextOrder.orderId || "GP-8821",
+      pinCode: orderContextOrder.collectionCode || orderContextOrder.pinCode || "8821",
+      qrPayload:
+        orderContextOrder.qrPayload ||
+        `AGPC1.AGPC-2027-KEY-01.DEMO.${orderContextOrder.reference || "GP-8821"}`,
+      pickupStation: {
+        id: orderContextOrder.pitStopId || "M2",
+        name: orderContextOrder.stationName || `Pit Stop ${orderContextOrder.pitStopId || "M2"}`,
+        locationDetails: "Albert Park Concession Pod",
+        counterNumber: orderContextOrder.lockerNumber || "#04",
+        walkTimeMins: 2,
+      },
+      items: orderContextOrder.items.map((i) => ({
+        item: {
+          name: i.name || i.itemId.toUpperCase(),
+          price: i.unitPrice,
+          image: i.image || "/images/burger.jpg",
+        },
+        quantity: i.quantity,
+      })),
+      total: orderContextOrder.totalPaid,
+      status: (orderContextOrder.status === "completed"
+        ? "COMPLETED"
+        : orderContextOrder.status === "preparing"
+        ? "PREPARING"
+        : "READY_FOR_PICKUP") as "READY_FOR_PICKUP" | "PREPARING" | "COMPLETED",
+    };
+  }, [orderContextOrder, defaultOrder]);
+
+  // Real-time Order Lifecycle Sync: Poll GET /api/orders/[id]/status every 3s
+  useEffect(() => {
+    const orderIdToPoll = order.orderId;
+    if (!orderIdToPoll) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(orderIdToPoll)}/status`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && json.data?.status) {
+          const rawStatus = String(json.data.status).toUpperCase();
+          let mappedStatus = rawStatus;
+          if (rawStatus === "READY") mappedStatus = "READY_FOR_PICKUP";
+          setLiveStatus(mappedStatus);
+
+          if (orderContextOrder) {
+            let collectStatus: CollectStatus = COLLECT_STATUS.READY;
+            if (rawStatus === "RECEIVED") collectStatus = COLLECT_STATUS.RECEIVED;
+            else if (rawStatus === "PREPARING") collectStatus = COLLECT_STATUS.PREPARING;
+            else if (rawStatus === "READY" || rawStatus === "READY_FOR_PICKUP")
+              collectStatus = COLLECT_STATUS.READY;
+            else if (rawStatus === "COMPLETED" || rawStatus === "COLLECTED")
+              collectStatus = COLLECT_STATUS.COMPLETED;
+
+            if (orderContextOrder.status !== collectStatus) {
+              updateActiveOrderStatus(collectStatus);
+            }
+          }
+        }
+      } catch {
+        // Offline resilience
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [order.orderId, orderContextOrder, updateActiveOrderStatus]);
+
+  const fallbackDigits = (order.pinCode.length >= 4 ? order.pinCode : "8821")
+    .slice(0, 4)
+    .split("");
 
   return (
     <div className="min-h-screen bg-pitstop-background text-pitstop-text flex flex-col items-center">
@@ -85,15 +141,58 @@ export default function OrderPassPage() {
 
         {/* Live Status Banner */}
         <div className="px-screen pt-compact">
-          <div className="bg-pitstop-surface border-2 border-pitstop-success rounded-large p-standard shadow-card text-center">
+          <div
+            className={`
+              border-2 rounded-large p-standard shadow-card text-center transition-all
+              ${
+                liveStatus === "COMPLETED"
+                  ? "bg-emerald-950/40 border-emerald-500"
+                  : liveStatus === "PREPARING"
+                  ? "bg-amber-950/40 border-amber-500"
+                  : "bg-pitstop-surface border-pitstop-success"
+              }
+            `}
+          >
             <div className="flex items-center justify-center gap-compact">
-              <Check className="w-6 h-6 text-pitstop-success" />
-              <h2 className="font-display font-black text-section-title text-pitstop-success tracking-wider uppercase">
-                ORDER READY
+              {liveStatus === "COMPLETED" ? (
+                <Check className="w-6 h-6 text-emerald-400" />
+              ) : liveStatus === "PREPARING" ? (
+                <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+              ) : (
+                <Check className="w-6 h-6 text-pitstop-success" />
+              )}
+              <h2
+                className={`
+                  font-display font-black text-section-title tracking-wider uppercase
+                  ${
+                    liveStatus === "COMPLETED"
+                      ? "text-emerald-400"
+                      : liveStatus === "PREPARING"
+                      ? "text-amber-400"
+                      : "text-pitstop-success"
+                  }
+                `}
+              >
+                {liveStatus === "COMPLETED"
+                  ? "ORDER COMPLETED"
+                  : liveStatus === "PREPARING"
+                  ? "PREPARING ORDER"
+                  : "ORDER READY"}
               </h2>
             </div>
             <p className="text-body text-pitstop-text-secondary mt-1 font-medium">
-              Collect immediately at <span className="text-pitstop-text font-bold">{order.pickupStation.name}</span>
+              {liveStatus === "COMPLETED" ? (
+                <span>Collected successfully from {order.pickupStation.name}</span>
+              ) : liveStatus === "PREPARING" ? (
+                <span>Kitchen staff preparing items for {order.pickupStation.name}</span>
+              ) : (
+                <span>
+                  Collect immediately at{" "}
+                  <span className="text-pitstop-text font-bold">
+                    {order.pickupStation.name}
+                  </span>
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -145,7 +244,9 @@ export default function OrderPassPage() {
             {/* Locker & Countdown Details */}
             <div className="border-t border-pitstop-border pt-compact flex items-center justify-between text-body">
               <div>
-                <span className="text-pitstop-text-secondary block text-label-compact uppercase font-bold">Locker / Counter</span>
+                <span className="text-pitstop-text-secondary block text-label-compact uppercase font-bold">
+                  Locker / Counter
+                </span>
                 <span className="font-display font-black text-compact-title text-pitstop-text font-mono">
                   {order.pickupStation.counterNumber}
                 </span>
@@ -169,8 +270,8 @@ export default function OrderPassPage() {
             onClick={() => setOfflineSaved(true)}
             className={`w-full min-h-tap py-small rounded-large border text-body font-display font-bold uppercase tracking-wider flex items-center justify-center gap-compact transition-all ${
               offlineSaved
-                ? 'bg-pitstop-success/15 border-pitstop-success text-pitstop-success shadow-card'
-                : 'bg-pitstop-surface border-pitstop-border text-pitstop-text hover:bg-neutral-900'
+                ? "bg-pitstop-success/15 border-pitstop-success text-pitstop-success shadow-card"
+                : "bg-pitstop-surface border-pitstop-border text-pitstop-text hover:bg-neutral-900"
             }`}
           >
             {offlineSaved ? (

@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Icon } from '@iconify/react';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
-import { Ed25519PassEngine } from '@/lib/crypto/passEngine';
+import { verifyQrPayload } from '@/lib/crypto/passVerifier';
+import { OfflineNonceRegistry } from '@/lib/crypto/nonceRegistry';
 import { OrderRecord } from '@/lib/db/client';
 
 interface OrderSummary {
@@ -28,20 +29,83 @@ interface OrderSummary {
   updatedAt?: string;
 }
 
+type BadgeState = 'NONE' | 'VALID' | 'INVALID' | 'REPLAY_DETECTED' | 'NUMERIC_FALLBACK';
+
 export default function VendorTerminalPage() {
+  // Staff PIN Gate State (Persisted in sessionStorage)
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [vendorPin, setVendorPin] = useState('2026');
+
+  // Terminal & Station State
   const [selectedStation, setSelectedStation] = useState('M2');
   const [passInput, setPassInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   const [activeOrder, setActiveOrder] = useState<OrderSummary | null>(null);
+
+  // Verification Badge & Feedback
+  const [badgeState, setBadgeState] = useState<BadgeState>('NONE');
   const [verificationFeedback, setVerificationFeedback] = useState<{
     valid: boolean;
     latencyMs: number;
     message: string;
+    reason?: string;
   } | null>(null);
+
+  // Live Orders
   const [recentOrders, setRecentOrders] = useState<OrderSummary[]>([]);
 
-  // Fetch recent orders on mount and periodically
-  const fetchOrders = async () => {
+  // Camera QR Scanner State
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const html5QrCodeRef = useRef<{ stop: () => Promise<void>; clear: () => void } | null>(null);
+
+  // Hydrate PIN gate from sessionStorage
+  useEffect(() => {
+    try {
+      const unlocked = sessionStorage.getItem('pitstop_vendor_unlocked');
+      const savedPin = sessionStorage.getItem('pitstop_vendor_pin') || '2026';
+      setVendorPin(savedPin);
+      if (unlocked === 'true') {
+        setIsUnlocked(true);
+      }
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    const entered = pinInput.trim();
+    if (entered === '2026' || entered === vendorPin) {
+      setIsUnlocked(true);
+      setPinError('');
+      try {
+        sessionStorage.setItem('pitstop_vendor_unlocked', 'true');
+        sessionStorage.setItem('pitstop_vendor_pin', entered);
+      } catch {
+        // Ignore
+      }
+    } else {
+      setPinError('Invalid Staff PIN. Demo PIN is 2026.');
+    }
+  };
+
+  const handleLock = () => {
+    setIsUnlocked(false);
+    setPinInput('');
+    try {
+      sessionStorage.removeItem('pitstop_vendor_unlocked');
+    } catch {
+      // Ignore
+    }
+    stopScanner();
+  };
+
+  // Fetch recent orders
+  const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch('/api/orders');
       const data = await res.json();
@@ -67,52 +131,135 @@ export default function VendorTerminalPage() {
     } catch (err) {
       console.warn('Failed to fetch orders:', err);
     }
-  };
-
-  useEffect(() => {
-    fetchOrders();
-    const interval = setInterval(fetchOrders, 4000);
-    return () => clearInterval(interval);
   }, []);
 
-  const handleVerifyPass = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const trimmed = passInput.trim();
+  useEffect(() => {
+    if (isUnlocked) {
+      fetchOrders();
+      const interval = setInterval(fetchOrders, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [isUnlocked, fetchOrders]);
+
+  // Clean up camera scanner on unmount
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, []);
+
+  const stopScanner = () => {
+    if (html5QrCodeRef.current) {
+      try {
+        html5QrCodeRef.current.stop().catch(() => {});
+        html5QrCodeRef.current.clear();
+      } catch {
+        // Ignore
+      }
+      html5QrCodeRef.current = null;
+    }
+    setScannerActive(false);
+  };
+
+  const startScanner = async () => {
+    setScannerError('');
+    setScannerActive(true);
+
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      // Small timeout to allow container DOM element to mount
+      setTimeout(async () => {
+        try {
+          const qrElement = document.getElementById('qr-reader-container');
+          if (!qrElement) return;
+
+          const scanner = new Html5Qrcode('qr-reader-container');
+          html5QrCodeRef.current = scanner;
+
+          await scanner.start(
+            { facingMode: 'environment' },
+            {
+              fps: 10,
+              qrbox: { width: 220, height: 220 },
+            },
+            (decodedText: string) => {
+              // Successfully scanned QR
+              stopScanner();
+              setPassInput(decodedText);
+              verifyPayload(decodedText);
+            },
+            () => {
+              // Normal frame scanner tick
+            }
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Camera access denied or unavailable';
+          setScannerError(msg);
+          setScannerActive(false);
+        }
+      }, 100);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Scanner library load failed';
+      setScannerError(msg);
+      setScannerActive(false);
+    }
+  };
+
+  const verifyPayload = async (rawInput: string) => {
+    const trimmed = rawInput.trim();
     if (!trimmed) return;
 
     setLoading(true);
     setVerificationFeedback(null);
+    setBadgeState('NONE');
     const start = performance.now();
 
     try {
-      // 1. Check if input is a cryptographic QR string
+      // 1. Cryptographic Ed25519 QR pass payload
       if (trimmed.startsWith('AGPC1.')) {
-        const qrResult = Ed25519PassEngine.verifyQrPayload(trimmed, selectedStation);
+        const qrResult = verifyQrPayload(trimmed, selectedStation);
         const end = performance.now();
         const latency = end - start;
 
-        if (qrResult.isValid && qrResult.orderId) {
+        if (qrResult.isValid && qrResult.payload) {
+          // Check for replay attacks via OfflineNonceRegistry
+          const nonceCheck = OfflineNonceRegistry.registerNonce(
+            qrResult.payload.nonce,
+            qrResult.payload.expiresAt,
+            qrResult.payload.orderId
+          );
+
+          if (!nonceCheck.valid) {
+            setBadgeState('REPLAY_DETECTED');
+            setVerificationFeedback({
+              valid: false,
+              latencyMs: latency,
+              reason: 'REPLAY_DETECTED',
+              message: `REPLAY DETECTED: Nonce '${qrResult.payload.nonce}' has already been redeemed!`,
+            });
+            setLoading(false);
+            return;
+          }
+
+          // Fresh cryptographic pass: attempt server sync with offline fallback
+          setBadgeState('VALID');
+          let synced = false;
+
           try {
-            const res = await fetch(`/api/orders/${qrResult.orderId}/status`);
+            const res = await fetch(`/api/orders/${encodeURIComponent(qrResult.payload.orderId)}/status`);
             const data = await res.json();
             if (data.success && data.data) {
               setActiveOrder(data.data);
-              setVerificationFeedback({
-                valid: true,
-                latencyMs: latency,
-                message: `Asymmetric Ed25519 Signature Verified (${latency.toFixed(2)} ms · Cloud Status Synced)`,
-              });
-              setLoading(false);
-              return;
+              synced = true;
             }
           } catch {
-            // Cell tower down: Fall back seamlessly to cryptographically verified payload
+            // Offline fallback
           }
 
-          if (qrResult.payload) {
+          if (!synced) {
             setActiveOrder({
               orderId: qrResult.payload.orderId,
-              pinCode: qrResult.payload.orderId.replace('GP-', ''),
+              pinCode: qrResult.payload.orderId.replace('GP-', '').slice(-4),
               status: 'READY_FOR_PICKUP',
               station: {
                 id: qrResult.payload.targetStationId,
@@ -131,48 +278,55 @@ export default function VendorTerminalPage() {
                 0
               ),
             });
-
-            setVerificationFeedback({
-              valid: true,
-              latencyMs: latency,
-              message: `Asymmetric Ed25519 Verified 100% OFFLINE (Airplane Mode · ${latency.toFixed(2)} ms with 0 network trips)`,
-            });
-            setLoading(false);
-            return;
           }
+
+          setVerificationFeedback({
+            valid: true,
+            latencyMs: latency,
+            message: `Ed25519 Valid (${latency.toFixed(2)} ms · Offline Nonce Registered)`,
+          });
+          setLoading(false);
+          return;
         } else {
+          setBadgeState('INVALID');
           setVerificationFeedback({
             valid: false,
             latencyMs: latency,
-            message: qrResult.reason || 'Cryptographic signature mismatch',
+            reason: qrResult.reason,
+            message: `Ed25519 Invalid: ${qrResult.reason || 'Cryptographic signature mismatch'}`,
           });
           setLoading(false);
           return;
         }
       }
 
-      // 2. Otherwise treat as 4-digit PIN or GP-XXXX order reference
+      // 2. 4-Digit Numeric Fallback or Order Reference
       const lookupCode = trimmed.startsWith('GP-') ? trimmed : `GP-${trimmed}`;
-      const res = await fetch(`/api/orders/${lookupCode}/status`);
+      const res = await fetch(`/api/orders/${encodeURIComponent(lookupCode)}/status`);
       const data = await res.json();
       const end = performance.now();
+      const latency = end - start;
 
       if (data.success && data.data) {
         setActiveOrder(data.data);
+        setBadgeState('NUMERIC_FALLBACK');
         setVerificationFeedback({
           valid: true,
-          latencyMs: end - start,
-          message: `Order Found via 4-Digit Numeric Fallback (${(end - start).toFixed(2)} ms)`,
+          latencyMs: latency,
+          message: `Order Located via Numeric Lookup (${latency.toFixed(2)} ms)`,
         });
       } else {
+        setBadgeState('INVALID');
         setVerificationFeedback({
           valid: false,
-          latencyMs: end - start,
-          message: `Order '${trimmed}' not found in active queue`,
+          latencyMs: latency,
+          reason: 'NOT_FOUND',
+          message: `Order '${trimmed}' not found in active station queue`,
         });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Verification exception';
+      setBadgeState('INVALID');
       setVerificationFeedback({
         valid: false,
         latencyMs: 0,
@@ -183,276 +337,489 @@ export default function VendorTerminalPage() {
     }
   };
 
-  const handleStatusAdvance = async (newStatus: 'READY_FOR_PICKUP' | 'COMPLETED') => {
+  const handleVerifyPass = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    verifyPayload(passInput);
+  };
+
+  // Quick Action Buttons with X-Vendor-Pin Header
+  const handleStatusAdvance = async (newStatus: 'PREPARING' | 'READY_FOR_PICKUP' | 'COMPLETED') => {
     if (!activeOrder) return;
-    setLoading(true);
+    setActionLoading(true);
 
     try {
-      const res = await fetch(`/api/orders/${activeOrder.orderId}/status`, {
+      const res = await fetch(`/api/orders/${encodeURIComponent(activeOrder.orderId)}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Vendor-Pin': vendorPin || '2026',
+        },
         body: JSON.stringify({ status: newStatus }),
       });
       const data = await res.json();
+
       if (data.success) {
         setActiveOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
         fetchOrders();
+      } else {
+        alert(data.error || 'Failed to update order status');
       }
-    } catch (err) {
-      console.error('Failed to advance order status:', err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Status update failed';
+      alert(`Error updating order: ${msg}`);
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-[#07090e] text-white p-4 font-sans">
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Terminal Header */}
-        <header className="border-b border-gray-800 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+  // PIN Gate Screen
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-[#0B0E14] text-white flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-[#121620] p-8 shadow-2xl text-center space-y-6">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-600/20 text-red-500 border border-red-500/30">
+            <Icon icon="mdi:shield-lock-outline" width={36} height={36} />
+          </div>
+
           <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <h1 className="text-xl font-display font-black tracking-wider text-white uppercase">
-                CONCESSION STAFF POD TERMINAL
-              </h1>
-            </div>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Trackside Offline Barcode Scanner & Digital Pass Validator
+            <h1 className="font-display font-black text-2xl uppercase tracking-wider text-white">
+              Staff Kiosk Terminal
+            </h1>
+            <p className="text-sm text-neutral-400 mt-1">
+              Albert Park Trackside Concession Logistics
             </p>
           </div>
 
-          {/* Pod Selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400 uppercase font-bold">Current Pod:</span>
-            <div className="flex bg-[#111622] rounded-lg p-1 border border-gray-700">
-              {PIT_STOPS.map((pod) => (
-                <button
-                  key={pod.id}
-                  type="button"
-                  onClick={() => setSelectedStation(pod.id)}
-                  className={`px-3 py-1 rounded text-xs font-black transition-colors ${
-                    selectedStation === pod.id
-                      ? 'bg-[var(--color-brand-primary)] text-white'
-                      : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {pod.id}
-                </button>
-              ))}
-            </div>
-            <Link
-              href="/"
-              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded border border-gray-700 hover:border-gray-500"
-            >
-              Exit to Fan App
-            </Link>
+          <div className="rounded-xl bg-neutral-900/80 border border-neutral-800 p-3 text-xs text-neutral-300">
+            <span className="font-bold text-amber-400">DEMO ACCESS:</span> Default staff PIN is{' '}
+            <span className="font-mono font-bold text-white bg-neutral-800 px-2 py-0.5 rounded border border-neutral-700">
+              2026
+            </span>
           </div>
-        </header>
 
-        {/* Scanner Input & Verification Section */}
-        <section className="bg-[#0e131f] border border-gray-800 rounded-2xl p-5 shadow-xl">
-          <h2 className="text-sm font-display font-bold uppercase tracking-wider text-gray-300 mb-3 flex items-center gap-2">
-            <Icon icon="ph:barcode-bold" width="18" height="18" className="text-red-500" />
-            <span>Scan Customer QR Code or Enter 4-Digit Code</span>
-          </h2>
+          <form onSubmit={handleUnlock} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                maxLength={6}
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                placeholder="Enter 4-digit PIN"
+                className="w-full text-center text-2xl font-mono tracking-[0.5em] rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:tracking-normal placeholder:text-neutral-600 focus:border-red-500 focus:outline-none"
+                autoFocus
+              />
+              {pinError && <p className="text-xs text-red-400 font-semibold mt-2">{pinError}</p>}
+            </div>
 
-          <form onSubmit={handleVerifyPass} className="flex gap-2">
-            <input
-              type="text"
-              value={passInput}
-              onChange={(e) => setPassInput(e.target.value)}
-              placeholder="e.g. 2329 or paste Base64URL AGPC1... QR string"
-              className="flex-1 bg-[#161c2d] border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-red-500 font-mono"
-            />
             <button
               type="submit"
-              disabled={loading || !passInput}
-              className="px-6 py-3 bg-[var(--color-brand-primary)] hover:bg-red-700 disabled:opacity-50 text-white font-display font-black text-sm tracking-wider uppercase rounded-xl transition-colors flex items-center gap-2"
+              className="w-full rounded-xl bg-red-600 py-3 font-display font-bold uppercase tracking-wider text-white hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
             >
-              {loading ? <Icon icon="eos-icons:loading" width="16" height="16" /> : <Icon icon="ph:magnifying-glass-bold" width="16" height="16" />}
-              <span>Verify Pass</span>
+              Unlock Terminal
             </button>
           </form>
 
-          {/* Verification Result Feedback */}
-          {verificationFeedback && (
-            <div
-              className={`mt-4 p-3 rounded-xl border flex items-center gap-3 ${
-                verificationFeedback.valid
-                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
-                  : 'bg-red-950/40 border-red-500/50 text-red-300'
-              }`}
-            >
-              <Icon
-                icon={verificationFeedback.valid ? 'ph:check-circle-fill' : 'ph:warning-circle-fill'}
-                width="20"
-                height="20"
-                className="shrink-0"
-              />
-              <div className="text-xs">
-                <p className="font-bold">{verificationFeedback.message}</p>
-                <p className="text-[10px] opacity-80 mt-0.5">
-                  Verification latency: {verificationFeedback.latencyMs.toFixed(3)} ms · Target SLA &lt; 10 ms (PASS)
-                </p>
+          <div className="pt-2">
+            <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
+              ← Return to Consumer Fan Store
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Full-Screen Vendor Terminal Kiosk UI
+  return (
+    <div className="min-h-screen bg-[#0B0E14] text-white flex flex-col">
+      {/* Top Staff Navigation Header */}
+      <header className="border-b border-neutral-800 bg-[#121620] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white font-display font-black text-xl">
+            PS
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="font-display font-black text-lg uppercase tracking-wider text-white">
+                Pit Stop Staff Terminal
+              </h1>
+              <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                ACTIVE KIOSK
+              </span>
+            </div>
+            <p className="text-xs text-neutral-400">
+              Station {selectedStation} • Offline Asymmetric Ed25519 Verifier
+            </p>
+          </div>
+        </div>
+
+        {/* Station Selector & Lock */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center rounded-xl border border-neutral-700 bg-neutral-900 p-1">
+            {PIT_STOPS.map((stop) => (
+              <button
+                key={stop.id}
+                onClick={() => setSelectedStation(stop.id)}
+                className={`rounded-lg px-3 py-1.5 font-display text-xs font-bold transition-all ${
+                  selectedStation === stop.id
+                    ? 'bg-red-600 text-white shadow'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                {stop.id}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={handleLock}
+            className="flex items-center gap-1.5 rounded-xl border border-neutral-700 bg-neutral-800 px-3 py-2 text-xs font-bold text-neutral-300 hover:bg-neutral-700 transition-colors"
+          >
+            <Icon icon="mdi:lock-outline" width={16} height={16} />
+            <span>Lock</span>
+          </button>
+
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-bold text-neutral-400 hover:text-white transition-colors"
+          >
+            <Icon icon="mdi:home-outline" width={16} height={16} />
+            <span>App</span>
+          </Link>
+        </div>
+      </header>
+
+      {/* Main Terminal Grid */}
+      <main className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-7xl mx-auto w-full">
+        {/* Left Column: Scanner & Verification (7 cols) */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Scan & Input Card */}
+          <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-5">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Icon icon="mdi:qrcode-scan" width={22} height={22} className="text-red-500" />
+                <h2 className="font-display font-black text-lg uppercase tracking-wider text-white">
+                  Pass Verification Engine
+                </h2>
+              </div>
+              <span className="font-mono text-xs text-neutral-400">Target: Pod {selectedStation}</span>
+            </div>
+
+            {/* Camera Scanner Controls */}
+            <div>
+              {!scannerActive ? (
+                <button
+                  type="button"
+                  onClick={startScanner}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 font-display font-bold text-sm uppercase tracking-wider text-white transition-colors"
+                >
+                  <Icon icon="mdi:camera" width={20} height={20} className="text-red-400" />
+                  <span>Start Camera QR Scanner</span>
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div
+                    id="qr-reader-container"
+                    className="w-full overflow-hidden rounded-xl border-2 border-red-500/50 bg-black min-h-[260px] flex items-center justify-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={stopScanner}
+                    className="w-full rounded-xl bg-neutral-800 border border-neutral-700 py-2 text-xs font-bold uppercase tracking-wider text-neutral-300 hover:text-white"
+                  >
+                    Close Camera Scanner
+                  </button>
+                </div>
+              )}
+              {scannerError && (
+                <p className="text-xs text-amber-400 mt-2">{scannerError} (Use manual input below)</p>
+              )}
+            </div>
+
+            {/* Manual QR / Numeric Input Form */}
+            <form onSubmit={handleVerifyPass} className="space-y-3">
+              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400">
+                Scan Pass Payload (AGPC1.*) or 4-Digit Pickup PIN
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={passInput}
+                  onChange={(e) => setPassInput(e.target.value)}
+                  placeholder="Paste QR string or enter 4-digit PIN..."
+                  className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-2.5 font-mono text-sm text-white placeholder:text-neutral-600 focus:border-red-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !passInput.trim()}
+                  className="rounded-xl bg-red-600 px-5 py-2.5 font-display font-bold text-sm uppercase tracking-wider text-white hover:bg-red-700 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  {loading ? 'Verifying...' : 'Verify'}
+                </button>
+              </div>
+            </form>
+
+            {/* Quick Demo Test Payloads */}
+            <div className="pt-2 border-t border-neutral-800">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
+                Quick Verification Test Payloads
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sample = 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821';
+                    setPassInput(sample);
+                    verifyPayload(sample);
+                  }}
+                  className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+                >
+                  Sample QR (GP-8821)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPassInput('8821');
+                    verifyPayload('8821');
+                  }}
+                  className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+                >
+                  PIN 8821
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    OfflineNonceRegistry.clear();
+                    alert('Offline nonce registry cleared');
+                  }}
+                  className="rounded-lg border border-neutral-800 bg-neutral-900/50 px-2.5 py-1 text-xs text-neutral-500 hover:text-neutral-300"
+                >
+                  Clear Nonce Cache
+                </button>
+              </div>
+            </div>
+
+            {/* Verification Status Badge */}
+            {badgeState !== 'NONE' && (
+              <div
+                className={`rounded-xl border p-4 space-y-1 transition-all ${
+                  badgeState === 'VALID'
+                    ? 'border-emerald-500/50 bg-emerald-950/30'
+                    : badgeState === 'REPLAY_DETECTED'
+                    ? 'border-amber-500/50 bg-amber-950/40'
+                    : badgeState === 'NUMERIC_FALLBACK'
+                    ? 'border-blue-500/50 bg-blue-950/30'
+                    : 'border-red-500/50 bg-red-950/30'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {badgeState === 'VALID' && (
+                    <>
+                      <Icon icon="mdi:shield-check" width={22} height={22} className="text-emerald-400" />
+                      <span className="font-display font-black text-sm uppercase tracking-wider text-emerald-400">
+                        Ed25519 Valid
+                      </span>
+                    </>
+                  )}
+                  {badgeState === 'REPLAY_DETECTED' && (
+                    <>
+                      <Icon icon="mdi:shield-alert" width={22} height={22} className="text-amber-400" />
+                      <span className="font-display font-black text-sm uppercase tracking-wider text-amber-400">
+                        Replay Detected
+                      </span>
+                    </>
+                  )}
+                  {badgeState === 'INVALID' && (
+                    <>
+                      <Icon icon="mdi:shield-remove" width={22} height={22} className="text-red-400" />
+                      <span className="font-display font-black text-sm uppercase tracking-wider text-red-400">
+                        Ed25519 Invalid
+                      </span>
+                    </>
+                  )}
+                  {badgeState === 'NUMERIC_FALLBACK' && (
+                    <>
+                      <Icon icon="mdi:numeric" width={22} height={22} className="text-blue-400" />
+                      <span className="font-display font-black text-sm uppercase tracking-wider text-blue-400">
+                        Numeric Fallback
+                      </span>
+                    </>
+                  )}
+                  {verificationFeedback?.latencyMs !== undefined && (
+                    <span className="ml-auto font-mono text-[11px] text-neutral-400">
+                      {verificationFeedback.latencyMs.toFixed(2)} ms
+                    </span>
+                  )}
+                </div>
+
+                {verificationFeedback?.message && (
+                  <p className="text-xs text-neutral-300 font-medium">{verificationFeedback.message}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Active Order Details Card */}
+          {activeOrder && (
+            <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-3">
+                <div>
+                  <span className="font-mono text-xs font-bold text-red-400">{activeOrder.orderId}</span>
+                  <h3 className="font-display font-black text-xl uppercase tracking-wider text-white">
+                    Pickup PIN: {activeOrder.pinCode}
+                  </h3>
+                </div>
+
+                <div className="text-right">
+                  <span
+                    className={`inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+                      activeOrder.status === 'COMPLETED'
+                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        : activeOrder.status === 'READY_FOR_PICKUP'
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    }`}
+                  >
+                    {activeOrder.status}
+                  </span>
+                  <div className="text-xs text-neutral-400 mt-1 font-mono">
+                    Locker: {activeOrder.station.lockerNumber}
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Items List */}
+              <div className="space-y-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">Order Items</div>
+                <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3 divide-y divide-neutral-800">
+                  {activeOrder.items.map((item, idx) => (
+                    <div key={idx} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between text-sm">
+                      <div className="font-medium text-white">
+                        <span className="font-bold text-red-400 mr-2">{item.quantity}×</span>
+                        {item.name}
+                      </div>
+                      <div className="font-mono font-bold text-neutral-300">
+                        ${(item.unitPrice * item.quantity).toFixed(2)}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-2 flex items-center justify-between font-bold text-sm">
+                    <span className="text-neutral-400 uppercase">Total Value</span>
+                    <span className="font-mono text-amber-400">${activeOrder.total.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Action Buttons */}
+              <div className="pt-2 border-t border-neutral-800 space-y-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                  Quick Lifecycle Actions (X-Vendor-Pin: {vendorPin})
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    disabled={actionLoading || activeOrder.status === 'PREPARING'}
+                    onClick={() => handleStatusAdvance('PREPARING')}
+                    className="rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-amber-300 disabled:opacity-40 transition-colors"
+                  >
+                    Start Preparing
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading || activeOrder.status === 'READY_FOR_PICKUP'}
+                    onClick={() => handleStatusAdvance('READY_FOR_PICKUP')}
+                    className="rounded-xl border border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-blue-300 disabled:opacity-40 transition-colors"
+                  >
+                    Mark Ready
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoading || activeOrder.status === 'COMPLETED'}
+                    onClick={() => handleStatusAdvance('COMPLETED')}
+                    className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-emerald-300 disabled:opacity-40 transition-colors"
+                  >
+                    Complete Collection
+                  </button>
+                </div>
               </div>
             </div>
           )}
-        </section>
+        </div>
 
-        {/* Active Order Manifest */}
-        {activeOrder && (
-          <section className="bg-[#0e131f] border-2 border-red-500/40 rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-gray-800 gap-2">
-              <div>
-                <span className="text-xs text-gray-400 font-mono">ORDER #{activeOrder.orderId}</span>
-                <h3 className="text-xl font-display font-black tracking-wider text-white">
-                  LOCKER COUNTER: {activeOrder.station.lockerNumber || '#04'}
+        {/* Right Column: Active Station Orders Queue (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Icon icon="mdi:tray-full" width={20} height={20} className="text-neutral-400" />
+                <h3 className="font-display font-black text-base uppercase tracking-wider text-white">
+                  Live Station Queue ({recentOrders.length})
                 </h3>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2.5 py-1 rounded font-bold uppercase tracking-wider bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
-                  STATUS: {activeOrder.status}
-                </span>
-              </div>
-            </div>
-
-            {/* Item Manifest to Dispense */}
-            <div>
-              <h4 className="text-xs font-display font-bold uppercase text-gray-400 tracking-wider mb-2">
-                Items to Place in Express Locker:
-              </h4>
-              <div className="divide-y divide-gray-800 bg-[#161c2d] rounded-xl border border-gray-800">
-                {activeOrder.items.map((item, idx) => (
-                  <div key={idx} className="p-3 flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="w-7 h-7 rounded-lg bg-red-600/20 text-red-400 border border-red-500/30 font-display font-black flex items-center justify-center text-xs">
-                        {item.quantity}×
-                      </span>
-                      <span className="font-bold text-white uppercase">{item.name}</span>
-                    </div>
-                    <span className="text-gray-400 font-mono text-xs">${(item.unitPrice * item.quantity).toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="pt-2 flex flex-col sm:flex-row gap-3">
-              {activeOrder.status === 'RECEIVED' && (
-                <button
-                  type="button"
-                  onClick={() => handleStatusAdvance('READY_FOR_PICKUP')}
-                  className="flex-1 py-3 bg-yellow-500 hover:bg-yellow-600 text-black font-display font-black text-sm tracking-wider uppercase rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
-                  <Icon icon="ph:bell-ringing-bold" width="18" height="18" />
-                  <span>Mark Ready for Pickup (Notify Fan)</span>
-                </button>
-              )}
-
-              {activeOrder.status !== 'COMPLETED' && (
-                <button
-                  type="button"
-                  onClick={() => handleStatusAdvance('COMPLETED')}
-                  className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-black font-display font-black text-sm tracking-wider uppercase rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
-                  <Icon icon="ph:check-bold" width="18" height="18" />
-                  <span>Confirm Dispensed & Complete Order</span>
-                </button>
-              )}
-
               <button
                 type="button"
-                onClick={() => {
-                  setActiveOrder(null);
-                  setPassInput('');
-                  setVerificationFeedback(null);
-                }}
-                className="py-3 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-display font-bold text-sm tracking-wider uppercase rounded-xl transition-colors"
+                onClick={fetchOrders}
+                className="text-neutral-400 hover:text-white p-1"
+                aria-label="Refresh orders"
               >
-                Clear
+                <Icon icon="mdi:refresh" width={18} height={18} />
               </button>
             </div>
-          </section>
-        )}
 
-        {/* Live Queue Table */}
-        <section className="bg-[#0e131f] border border-gray-800 rounded-2xl p-5 shadow-xl">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-display font-bold uppercase tracking-wider text-gray-300 flex items-center gap-2">
-              <Icon icon="ph:list-dashes-bold" width="18" height="18" className="text-blue-400" />
-              <span>Live Pod Concession Queue</span>
-            </h2>
-            <button
-              onClick={fetchOrders}
-              className="text-xs text-gray-400 hover:text-white flex items-center gap-1"
-            >
-              <Icon icon="ph:arrows-clockwise-bold" width="14" height="14" />
-              <span>Refresh Queue</span>
-            </button>
-          </div>
+            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
+              {recentOrders.length === 0 ? (
+                <div className="text-center py-8 text-neutral-500 text-sm">
+                  No orders currently active at Station {selectedStation}
+                </div>
+              ) : (
+                recentOrders.map((ord) => (
+                  <div
+                    key={ord.orderId}
+                    onClick={() => {
+                      setActiveOrder(ord);
+                      setPassInput(ord.orderId);
+                      setBadgeState('NUMERIC_FALLBACK');
+                      setVerificationFeedback({
+                        valid: true,
+                        latencyMs: 0,
+                        message: `Loaded from active queue`,
+                      });
+                    }}
+                    className={`cursor-pointer rounded-xl border p-3 transition-all ${
+                      activeOrder?.orderId === ord.orderId
+                        ? 'border-red-500 bg-red-950/20'
+                        : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold text-red-400">{ord.orderId}</span>
+                      <span
+                        className={`text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
+                          ord.status === 'COMPLETED'
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : ord.status === 'READY_FOR_PICKUP'
+                            ? 'bg-blue-500/20 text-blue-400'
+                            : 'bg-amber-500/20 text-amber-400'
+                        }`}
+                      >
+                        {ord.status}
+                      </span>
+                    </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#161c2d] text-gray-400 border-b border-gray-800 uppercase font-display">
-                <tr>
-                  <th className="p-3">Order Ref</th>
-                  <th className="p-3">PIN</th>
-                  <th className="p-3">Pod</th>
-                  <th className="p-3">Locker</th>
-                  <th className="p-3">Total</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {recentOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-4 text-center text-gray-500">
-                      No active orders found in database. Place an order in the fan app to see it appear here live!
-                    </td>
-                  </tr>
-                ) : (
-                  recentOrders.map((ord) => (
-                    <tr key={ord.orderId} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="p-3 font-mono font-bold text-white">{ord.orderId}</td>
-                      <td className="p-3 font-mono text-amber-400 font-bold">{ord.pinCode}</td>
-                      <td className="p-3 font-bold text-gray-300">{ord.station.id}</td>
-                      <td className="p-3 font-display font-bold text-red-400">{ord.station.lockerNumber}</td>
-                      <td className="p-3 font-mono text-gray-300">${ord.total.toFixed(2)}</td>
-                      <td className="p-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            ord.status === 'COMPLETED'
-                              ? 'bg-emerald-500/20 text-emerald-400'
-                              : ord.status === 'READY_FOR_PICKUP'
-                              ? 'bg-yellow-500/20 text-yellow-300'
-                              : 'bg-blue-500/20 text-blue-300'
-                          }`}
-                        >
-                          {ord.status}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveOrder(ord);
-                            setVerificationFeedback(null);
-                          }}
-                          className="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded text-[11px] font-display font-bold uppercase transition-colors"
-                        >
-                          Select
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                    <div className="mt-1 flex items-center justify-between text-xs text-neutral-400">
+                      <div>
+                        PIN: <span className="font-mono font-bold text-white">{ord.pinCode}</span> •{' '}
+                        {ord.station.lockerNumber}
+                      </div>
+                      <div className="font-mono font-bold text-white">${ord.total.toFixed(2)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

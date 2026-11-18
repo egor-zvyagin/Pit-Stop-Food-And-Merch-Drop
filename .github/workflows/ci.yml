@@ -48,7 +48,7 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.8
+          terraform_version: '1.11.4'
 
       - name: Terraform Format Check
         working-directory: infra/terraform
@@ -61,4 +61,3 @@ jobs:
       - name: Terraform Validate
         working-directory: infra/terraform
         run: terraform validate
-

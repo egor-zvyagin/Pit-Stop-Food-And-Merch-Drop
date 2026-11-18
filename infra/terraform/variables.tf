@@ -27,3 +27,15 @@ variable "enable_point_in_time_recovery" {
   description = "Enable DynamoDB point-in-time recovery"
   default     = true
 }
+
+variable "enable_budget" {
+  type        = bool
+  description = "Enable AWS monthly budget alert (5.00 USD limit)"
+  default     = false
+}
+
+variable "budget_notification_email" {
+  type        = string
+  description = "Email address for AWS Budget notifications"
+  default     = "alerts@pitstop-melbourne-gp.local"
+}

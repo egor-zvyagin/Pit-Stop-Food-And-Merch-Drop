@@ -24,6 +24,7 @@ const bigShoulders = Big_Shoulders_Display({
 export const metadata: Metadata = {
   title: "Pit Stop Food & Merch Drop",
   description: "Order ahead. Pick up fast. Get back to the action.",
+  manifest: "/manifest.json",
 };
 
 

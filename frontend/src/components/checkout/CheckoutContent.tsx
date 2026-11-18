@@ -68,6 +68,7 @@ export default function CheckoutContent() {
         totalItems,
         totalPrice,
         placeOrder,
+        activeTicketCode,
     } = useOrder();
 
     // Service Fees
@@ -127,7 +128,7 @@ export default function CheckoutContent() {
                 body: JSON.stringify({
                     items: itemsToOrder,
                     stationId: selectedPitStopId,
-                    ticketCode: 'GP-3820-X',
+                    ticketCode: activeTicketCode || 'GP-3820-X',
                     promoCode: appliedVoucher?.code,
                 }),
             });
