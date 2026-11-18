@@ -13,7 +13,9 @@
 ---
 
 ## Live Deployment & Links
-* **Target Cloud Environment:** AWS (`ap-southeast-2` Sydney) — Serverless Next.js 14 App Router + DynamoDB
+* **Live Production URL:** [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com)
+* **Target Cloud Environment:** AWS (`ap-southeast-2` Sydney) — Serverless Next.js 14 App Router + Amazon DynamoDB Single-Table (`pitstop_data`)
+* **Live Staff Kiosk Terminal:** [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor)
 * **Project Type:** Next.js Full-Stack Web Application & Serverless Cloud Architecture
 * **Target Event:** Formula 1® Australian Grand Prix (Albert Park Circuit, Melbourne)
 * **Standalone Crypto Benchmark:** [`/crypto-poc/ed25519_offline_verifier_demo.ts`](./crypto-poc/ed25519_offline_verifier_demo.ts)
