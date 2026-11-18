@@ -120,9 +120,17 @@ terraform plan
 ```
 
 ### Step 1.3: Apply Infrastructure Deployment
+
+#### Method A: Via Local CLI
 ```bash
 terraform apply -auto-approve
 ```
+
+#### Method B: Via Automated GitHub Actions (One-Click)
+1. Add `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN` to your GitHub Repository Secrets (**Settings** -> **Secrets and variables** -> **Actions**).
+2. Go to the **Actions** tab on your repository.
+3. Select **Deploy Infrastructure (Terraform)** workflow.
+4. Click **Run workflow** on branch `main`.
 
 **Expected Output:**
 ```text
