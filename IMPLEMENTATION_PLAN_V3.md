@@ -86,10 +86,33 @@ Upgrade the Pit Stop platform on the personal fork (`https://github.com/egor-zvy
 - [x] Client bundle secret leak audit (0 secrets found)
 - [x] Apply Terraform changes (`terraform apply -auto-approve` — S3 remote state verified)
 - [x] Re-seed DynamoDB in Sydney with v3 data
-- [ ] Merge `feat/v3-production-platform` to `main`, push to `origin`
-- [ ] Verify Amplify build job reaches `SUCCEED`
-- [ ] Run live smoke suite against `https://main.d3m92lj3xoqgf9.amplifyapp.com`
-- [ ] Confirm CloudWatch structured logs and finalize implementation report
+- [x] Merge `feat/v3-production-platform` to `main`, push to `origin`
+- [x] Verify Amplify build job reaches `SUCCEED` (Job #17 SUCCEED)
+- [x] Run live smoke suite against `https://main.d3m92lj3xoqgf9.amplifyapp.com` (10/10 passed in 2634ms)
+- [x] Confirm CloudWatch structured logs and finalize implementation report
+
+---
+
+## Production AWS Outputs & Artifacts
+
+| Resource | Value / Identifier |
+|---|---|
+| **Live App URL** | `https://main.d3m92lj3xoqgf9.amplifyapp.com` |
+| **Amplify App ID** | `d3m92lj3xoqgf9` (Region: `ap-southeast-2`) |
+| **DynamoDB Table** | `pitstop_data` (PAY_PER_REQUEST, GSI1, GSI2, TTL enabled) |
+| **S3 Remote State Bucket** | `pitstop-tfstate-608531435714-ap-southeast-2` (`use_lockfile = true`) |
+| **Amplify SSR Compute Role** | `arn:aws:iam::608531435714:role/pitstop-amplify-ssr-compute-role` |
+| **GitHub Actions OIDC Role** | `arn:aws:iam::608531435714:role/pitstop-github-actions-terraform-role` |
+| **CloudWatch Dashboard** | `pitstop-production-dashboard` |
+| **CloudWatch Metric Alarm** | `pitstop-dynamodb-system-errors` (`SystemErrors > 0`) |
+
+### GitHub Secrets Configuration (Manual Step for Keyless CI/CD)
+To enable keyless deployment from GitHub Actions:
+1. In `https://github.com/egor-zvyagin/Pit-Stop-Food-And-Merch-Drop/settings/secrets/actions`
+2. Add secret `AWS_GITHUB_OIDC_ROLE_ARN` with value:
+   `arn:aws:iam::608531435714:role/pitstop-github-actions-terraform-role`
+(Zero static AWS credentials needed!)
+
 - [ ] Merge `feat/v3-production-platform` to `main`, push to `origin`
 - [ ] Verify Amplify build job reaches `SUCCEED`
 - [ ] Run live smoke suite against `https://main.d3m92lj3xoqgf9.amplifyapp.com`
