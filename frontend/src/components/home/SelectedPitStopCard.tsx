@@ -4,27 +4,33 @@ import Button from "@/components/ui/Buttons";
 import Card from "@/components/ui/Card";
 import Typography from "@/components/ui/Typography";
 import { useRouter } from "next/navigation";
-import PitStopInfo from "../pitstop/PitStopInfo";
+import PitStopInfo, { PitStopLike } from "../pitstop/PitStopInfo";
 import { PitStop } from "@/data/pitStopConstantData";
 
 type SelectedPitStopCardProps = {
-    stop: PitStop;
+    stop: PitStop | PitStopLike;
+    distanceDisplay?: string;
+    isFastestTotal?: boolean;
     onViewMap: () => void;
 };
 
 export default function SelectedPitStopCard({
     stop,
+    distanceDisplay,
+    isFastestTotal = false,
     onViewMap,
 }: SelectedPitStopCardProps) {
     const router = useRouter();
 
     return (
-        <Card className="!rounded-[14px] !p-4">
+        <Card className="!rounded-[14px] !p-4 shadow-card">
             {/* Stop details */}
             <PitStopInfo
                 stop={stop}
                 selected
                 showLocationIcon
+                distanceDisplay={distanceDisplay}
+                isFastestTotal={isFastestTotal}
             />
 
             {/* Actions */}
@@ -72,6 +78,8 @@ export default function SelectedPitStopCard({
                         border
                         border-[var(--color-border)]
                         bg-[var(--color-page-background)]
+                        hover:bg-[var(--color-border)]/50
+                        transition-colors
                     "
                 >
                     <Icon

@@ -28,7 +28,7 @@ async function seedDatabase() {
     );
   }
 
-  // 2. Seed 4 Pod Stations
+  // 2. Seed 4 Pod Stations (Calibrated coordinates matching pitStopConstantData.tsx)
   const stations: StationRecord[] = [
     {
       id: 'M1',
@@ -39,7 +39,7 @@ async function seedDatabase() {
       queueTimeMins: 3,
       status: 'LOW QUEUE',
       capacityPercent: 40,
-      coordinates: { lat: -37.847, lng: 144.969 },
+      coordinates: { lat: -37.8496, lng: 144.9690 },
     },
     {
       id: 'M2',
@@ -50,7 +50,7 @@ async function seedDatabase() {
       queueTimeMins: 2,
       status: 'FASTEST',
       capacityPercent: 25,
-      coordinates: { lat: -37.841, lng: 144.966 },
+      coordinates: { lat: -37.8442, lng: 144.9746 },
     },
     {
       id: 'M3',
@@ -61,7 +61,7 @@ async function seedDatabase() {
       queueTimeMins: 12,
       status: 'HEAVY TRAFFIC',
       capacityPercent: 85,
-      coordinates: { lat: -37.847, lng: 144.975 },
+      coordinates: { lat: -37.8415, lng: 144.9648 },
     },
     {
       id: 'M4',
@@ -72,7 +72,7 @@ async function seedDatabase() {
       queueTimeMins: 15,
       status: 'HEAVY TRAFFIC',
       capacityPercent: 80,
-      coordinates: { lat: -37.856, lng: 144.979 },
+      coordinates: { lat: -37.8534, lng: 144.9718 },
     },
   ];
 

@@ -4,21 +4,36 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import Typography from "@/components/ui/Typography";
 import type { PitStop } from "@/data/pitStopConstantData";
 
+export interface PitStopLike {
+    id: string;
+    name: string;
+    distance: string;
+    status: string;
+    variant: "lowQueue" | "fastest" | "heavyTraffic";
+    latitude: number;
+    longitude: number;
+}
+
 type PitStopInfoProps = {
-    stop: PitStop;
+    stop: PitStop | PitStopLike;
     selected?: boolean;
     showLocationIcon?: boolean;
+    distanceDisplay?: string;
+    isFastestTotal?: boolean;
 };
 
 export default function PitStopInfo({
     stop,
     selected = false,
     showLocationIcon = false,
+    distanceDisplay,
+    isFastestTotal = false,
 }: PitStopInfoProps) {
+    const displayDistance = distanceDisplay || stop.distance;
+
     return (
         <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-[10px]">
-
                 <div
                     className={`
                         flex
@@ -29,6 +44,7 @@ export default function PitStopInfo({
                         justify-center
                         rounded-full
                         border
+                        transition-all
 
                         ${selected
                             ? `
@@ -84,17 +100,28 @@ export default function PitStopInfo({
                                 !text-[var(--color-text-muted)]
                             "
                         >
-                            {stop.distance}
+                            {displayDistance}
                         </Typography>
                     </div>
                 </div>
             </div>
 
-            <StatusBadge
-                variant={stop.variant}
-            >
-                {stop.status}
-            </StatusBadge>
+            {isFastestTotal ? (
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                    <StatusBadge variant="fastest">
+                        FASTEST TOTAL (WALK + QUEUE)
+                    </StatusBadge>
+                    {stop.status && stop.status !== "FASTEST" && (
+                        <span className="text-[10px] text-[var(--color-text-muted)] font-mono font-medium">
+                            {stop.status}
+                        </span>
+                    )}
+                </div>
+            ) : (
+                <StatusBadge variant={stop.variant}>
+                    {stop.status}
+                </StatusBadge>
+            )}
         </div>
     );
 }

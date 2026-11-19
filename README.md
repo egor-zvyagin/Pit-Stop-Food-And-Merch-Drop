@@ -6,7 +6,9 @@
 [![Next.js 14](https://img.shields.io/badge/Next.js-14.x-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
-[![Vitest](https://img.shields.io/badge/Vitest-30%2F30_Passed-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
+[![Vitest](https://img.shields.io/badge/Vitest-54%2F54_Passed-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
+[![MapLibre GL v5](https://img.shields.io/badge/MapLibre_GL-v5.x_Zero--Key-3884FF?style=for-the-badge&logo=mapbox)](https://maplibre.org/)
+[![OpenFreeMap](https://img.shields.io/badge/OpenFreeMap-Vector_Tiles-00D67A?style=for-the-badge)](https://openfreemap.org/)
 [![Ed25519 Cryptography](https://img.shields.io/badge/Ed25519-Offline_Verify_%3C10ms-green?style=for-the-badge&logo=gnupg)](./frontend/src/lib/crypto)
 [![AWS Serverless](https://img.shields.io/badge/AWS-ap--southeast--2-FF9900?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/)
 
@@ -77,13 +79,49 @@ flowchart TD
 Pit Stop mitigates these operational bottlenecks through:
 
 1. **Intelligent In-App Ordering & Scheduled Pickups:** Fans order meals and merchandise ahead, receiving precise collection windows synchronized with support races to bypass queues.
-2. **Dynamic Geospatial Routing Across 4 Concession Pods (M1-M4):** Powered by **Mapbox GL**, spectators receive turn-by-turn routing to their designated pickup counter:
-   * **Pod M1 (Main Straight / Pit Exit):** Serves Fangio, Senna, and Prost Grandstands.
-   * **Pod M2 (Turn 4 / Lakeside Drive):** Serves Brabham and Jones Grandstands.
-   * **Pod M3 (Turn 9 / Clarke Chicane):** Serves Waite and Clark Grandstands.
-   * **Pod M4 (Turn 14 / Albert Park Green):** Serves General Admission and Village Precinct.
+2. **Dynamic Geospatial Routing Across 4 Calibrated Concession Pods (M1-M4):** Powered by **Zero-Key MapLibre GL v5** and **OpenFreeMap vector tiles** with offline Dijkstra pedestrian routing around Albert Park Lake:
+   * **Pod M1 (Main Straight / Pit Exit):** Calibrated at `(-37.8496, 144.9690)`, serving Fangio, Senna, and Prost Grandstands.
+   * **Pod M2 (Turn 9 East / Clark):** Calibrated at `(-37.8442, 144.9746)`, serving Waite and Clark Grandstands.
+   * **Pod M3 (Turn 4 / Lakeside Drive):** Calibrated at `(-37.8415, 144.9648)`, serving Brabham and Jones Grandstands.
+   * **Pod M4 (Turn 14 / GA Village):** Calibrated at `(-37.8534, 144.9718)`, serving General Admission and Village Precinct.
 3. **Dynamic Concession Yield Pricing Engine:** Modeled after EatClub's dynamic yield management, the platform dynamically triggers automated 10% off-peak green flag discounts and 15% promotional vouchers (`PITSTOP15`) during low-queue intervals to flatten crowd surges away from race finishes.
 4. **Sub-10ms Offline Cryptographic Verification:** When mobile networks collapse trackside, customer order passes are validated offline via asymmetric Ed25519 digital signatures in under **10 ms** (typically **0.1 ms - 1.5 ms**) with zero cloud network requests.
+
+---
+
+## Pit Stop v2.1: Vector Map & Offline Wayfinding Engine
+
+To overcome trackside cellular dropouts and complex topography around Albert Park Lake, Pit Stop v2.1 introduces a high-performance, completely offline-capable vector mapping and pedestrian wayfinding engine:
+
+### 1. Zero-Key MapLibre GL v5 + OpenFreeMap Vector Maps
+- **Zero API Key Dependency:** Replaces commercial cloud tile services with open vector tiles hosted by [OpenFreeMap](https://openfreemap.org), eliminating API key rate limits, usage quotas, and monthly billing surprises.
+- **MapLibre GL v5 Architecture:** Powered by `maplibre-gl@^5.x` and `react-map-gl/maplibre` with custom Next.js 14 transpilation.
+- **Multiple High-Contrast Styles:**
+  * **Positron (Default Light):** High-readability daylight cartography optimized for direct outdoor sun trackside (`https://tiles.openfreemap.org/styles/positron`).
+  * **Liberty (Street Details):** Detailed topographical streets and paths (`https://tiles.openfreemap.org/styles/liberty`).
+  * **Dark (Night / Paddock):** Low-glare night race styling (`https://tiles.openfreemap.org/styles/dark`).
+- **Resilient Offline SVG Fallback:** When WebGL or data networks are completely unavailable, the map automatically degrades to `OfflineCircuitMapFallback.tsx` with light/dark theme contrast adaptation, SVG track outline, calibrated pod pins, and route geometry.
+
+### 2. Offline Dijkstra Pedestrian Routing Around Albert Park Lake
+- **Lake Geometry Awareness:** Albert Park Lake is a major physical barrier spanning ~2 km. Naive straight-line or Euclidean routing misleads fans into attempting impossible walks across water.
+- **16-Node Lakeside Walkway Graph:** Pit Stop builds an in-memory topological graph of official perimeter walking tracks, pedestrian boardwalks, and pedestrian bridges around Albert Park Lake.
+- **Dijkstra Shortest-Path Algorithm:** Computes the optimal lake-skirting pedestrian path between the spectator's current position and any target concession pod (e.g. routing between M3 on Lakeside Drive and M2 on the Clark Chicane traverses the northern lake path via Ross Gregory Dr / Aughtie Dr rather than penetrating the lake).
+- **Realistic Walk Time Modeling:** Calibrated walking velocity at 80 meters per minute (~4.8 km/h), dynamically calculating `walkMinutes = Math.max(1, Math.ceil(distanceMeters / 80))`.
+
+### 3. Smart GPS Geofencing & Trackside Simulation Engine
+- **Trackside Geofence (`2.5 km` Threshold):**
+  * **`live_trackside` (Distance <= 2.5 km):** Activates live trackside mode with high-accuracy GPS positioning (`navigator.geolocation.watchPosition`), drawing an accuracy circle polygon and locking map interactions to Albert Park.
+  * **`live_offsite` (Distance > 2.5 km):** Detects offsite fans (e.g. Melbourne CBD, interstate, or remote), displaying distance to circuit (e.g. `"You are 4.8 km from Albert Park"`) and providing seamless 1-tap switching to trackside simulation.
+- **Interactive Trackside Simulation:**
+  * **Grandstand Presets:** Instant teleportation to key vantage points: **Clark Grandstand (Turn 9)**, **Fangio Grandstand (Main Straight)**, **Brabham Grandstand (Turn 1)**, and **Albert Park Green (GA Village)**.
+  * **Interactive Map Pin Placement:** Spectators can tap anywhere on the Albert Park map to place a simulated spectator dot.
+  * **Step-by-Step Walk Simulation:** Simulates live pedestrian movement along the Dijkstra route waypoints to test wayfinding in real time.
+
+### 4. Intelligent Total Time Station Ranking (`rankStationsByTotalTime`)
+- Concession queue lines fluctuate rapidly during track sessions. Recommending solely based on physical proximity frequently directs spectators into congested bottlenecks.
+- `rankStationsByTotalTime` combines real pedestrian route walk time with real-time station queue latency:
+  $$\text{Total Time} = \text{Walk Minutes} + \text{Queue Wait Minutes}$$
+- **Bottleneck Avoidance:** A pod 300 meters away with a 2-minute queue (total 6 mins) is automatically recommended over a pod 100 meters away with a 15-minute queue (total 16 mins), badging the optimal choice with **FASTEST TOTAL (WALK + QUEUE)**.
 
 ---
 
@@ -139,18 +177,28 @@ To prevent ticket duplication or double-redemption attacks in complete airplane 
 Pit Stop includes full automated test coverage across cryptographic signing, authoritative pricing rules, serverless API contracts, and an end-to-end smoke verification runner.
 
 ```
-✓ src/__tests__/crypto.test.ts   (11 tests)   112ms
-✓ src/__tests__/pricing.test.ts  (10 tests)     4ms
-✓ src/__tests__/api.test.ts      (9 tests)     11ms
+✓ src/__tests__/geo.test.ts      (24 tests)     7ms
+✓ src/__tests__/crypto.test.ts   (11 tests)   106ms
+✓ src/__tests__/pricing.test.ts  (10 tests)     6ms
+✓ src/__tests__/api.test.ts      (9 tests)    611ms
 
-Test Files  3 passed (3)
-     Tests  30 passed (30)
-  Duration  245ms
+Test Files  4 passed (4)
+     Tests  54 passed (54)
+  Duration  815ms
 ```
 
 ### Suite Breakdown
 
-1. **`crypto.test.ts` (11 Tests):**
+1. **`geo.test.ts` (24 Tests):**
+   - Haversine distance calculations benchmarked against known Albert Park landmark surveys (Pit Straight to Turn 1 Apex ~790m, Lake length North to South shore ~1473m, Albert Park Center to Melbourne Town Hall / CBD ~3490m, Albert Park to Sydney Opera House ~716.4 km within 2% tolerance).
+   - High-accuracy GPS geofence classification (`2.5 km` threshold): Albert Park trackside points (`true`), Melbourne CBD and North Melbourne (`false`), Sydney Opera House (`false`).
+   - 16-node undirected walkway graph wrapping the Albert Park Lake perimeter.
+   - Dijkstra pedestrian route navigation: tests cross-lake navigation (M3 to M2, M4 to M3), asserting coordinates count >= 3, route distance > straight-line Haversine, and complete lake water intrusion avoidance.
+   - GPS accuracy circle generator: produces valid GeoJSON `Feature<Polygon>` with closed coordinate rings (first point === last point).
+   - Total time pod ranking (`rankStationsByTotalTime`): verifies that a station further away with a 2-min queue beats an immediate adjacent station with a 15-min heavy traffic queue, flagging `isRecommendedFastest: true`.
+   - Grand Prix 5.278 km circuit GeoJSON line geometry, bounding boxes, and calibrated pod coordinates synchronization.
+
+2. **`crypto.test.ts` (11 Tests):**
    - Ed25519 asymmetric keypair initialization & DER encoding.
    - Server-side cryptographic signing and QR payload generation (`AGPC1.*`).
    - Isomorphic client-side verification under `< 10ms` SLA target.
@@ -163,7 +211,7 @@ Test Files  3 passed (3)
    - `OfflineNonceRegistry` initial scan acceptance & replay duplicate rejection (`REPLAY_DETECTED`).
    - Nonce expiration window pruning.
 
-2. **`pricing.test.ts` (10 Tests):**
+3. **`pricing.test.ts` (10 Tests):**
    - Subtotal calculation against canonical catalog prices.
    - 10% dynamic yield Green Flag discount calculation.
    - Safety car bypass (0% dynamic discount during neutralizations).
@@ -175,7 +223,7 @@ Test Files  3 passed (3)
    - Loyalty point calculation (2 points per $1 spent).
    - **Price-tampering resistance:** client-altered `unitPrice` fields in cart payloads are completely overridden by authoritative catalog prices.
 
-3. **`api.test.ts` (9 Tests):**
+4. **`api.test.ts` (9 Tests):**
    - `GET /api/crypto/public-key`: 200 OK with SPKI DER Base64 public key.
    - `POST /api/orders`: Generates `GP-2026-*` order ID, 4-digit pickup PIN, and signed Ed25519 pass.
    - `POST /api/orders`: 400 Bad Request on empty or invalid cart items.

@@ -6,6 +6,7 @@ const allowedOrigin = isDev
 
 const nextConfig = {
   poweredByHeader: false,
+  transpilePackages: ['maplibre-gl'],
   async headers() {
     return [
       {

@@ -10,6 +10,7 @@ import Typography from "@/components/ui/Typography";
 
 import CollectItemsCard from "./CollectItemsCard";
 import CollectPageHeader from "./CollectPageHeader";
+import PodDirectionsPanel from "@/components/pitstop/PodDirectionsPanel";
 
 import type { ActiveOrder } from "@/components/order/OrderProvider";
 import type { PitStop } from "@/data/pitStopConstantData";
@@ -86,6 +87,15 @@ export default function CollectReadyState({
             </div>
           </div>
         </Card>
+
+        {/* Directions to Pod Wayfinding Panel */}
+        <PodDirectionsPanel
+          podId={pitStop.id}
+          podName={pitStop.name}
+          lockerNumber={order.lockerNumber || "#04"}
+          latitude={pitStop.latitude}
+          longitude={pitStop.longitude}
+        />
 
         {/* Dynamic Cryptographic QR Collection Card */}
         <Card className="!rounded-[14px] !px-5 !py-[18px] shadow-card">

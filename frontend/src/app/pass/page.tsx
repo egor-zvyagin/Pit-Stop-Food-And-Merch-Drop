@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useOrder } from "@/context/OrderContext";
 import { COLLECT_STATUS, CollectStatus } from "@/data/collectConstantData";
 import { CheckCircle2, ArrowLeft, Clock, ShieldCheck, Check, Loader2 } from "lucide-react";
+import PodDirectionsPanel from "@/components/pitstop/PodDirectionsPanel";
 
 export default function OrderPassPage() {
   const { activeOrder: orderContextOrder, updateActiveOrderStatus } = useOrder();
@@ -205,6 +206,16 @@ export default function OrderPassPage() {
               )}
             </p>
           </div>
+        </div>
+
+        {/* Directions to Pod Wayfinding */}
+        <div className="px-screen pt-compact">
+          <PodDirectionsPanel
+            podId={order.pickupStation.id}
+            podName={order.pickupStation.name}
+            lockerNumber={order.pickupStation.counterNumber}
+            walkTimeMins={order.pickupStation.walkTimeMins}
+          />
         </div>
 
         {/* Navigation & Pickup QR + Numeric Fallback */}
