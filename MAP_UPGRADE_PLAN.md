@@ -72,6 +72,6 @@ Upgrade the trackside wayfinding, interactive vector map, and GPS experience in 
 - [x] Unit tests: `npm test` (54/54 tests passing)
 - [x] Build test: `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN="" npm run build` (clean build)
 - [x] Re-seed DynamoDB in Sydney (`pitstop_data`)
-- [ ] Merge `feat/map-gps-upgrade` to `main`, push to `origin`
-- [ ] Amplify Deployment verification (Job SUCCEED)
-- [ ] Real HTTPS live smoke test execution via `smokeLive.ts`
+- [x] Merge `feat/map-gps-upgrade` to `main`, push to `origin`
+- [x] Amplify Deployment verification (Job #15 SUCCEED)
+- [x] Real HTTPS live smoke test execution via `smokeLive.ts` (6/6 passed in 1239ms)
