@@ -1,19 +1,16 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { db, OrderItemRecord, OrderRecord } from '@/lib/db/client';
+import { db, OrderItemRecord, OrderRecord, InsufficientStockError } from '@/lib/db/client';
 import { Ed25519PassEngine, OrderPassPayload } from '@/lib/crypto/passEngine';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
 import { CATALOG_BY_ID } from '@/data/catalog';
 import { calculateOrderPricing } from '@/lib/pricing';
+import { CreateOrderSchema } from '@/lib/validation/schemas';
+import { createRateLimiter } from '@/lib/validation/rateLimit';
+import { createRequestLogger, generateRequestId } from '@/lib/logger';
+import { validateVendorAuth } from '@/lib/auth/vendorAuth';
 
-interface CreateOrderRequest {
-  items: OrderItemRecord[];
-  stationId?: string;
-  isGroupOrder?: boolean;
-  ticketCode?: string;
-  promoCode?: string;
-  circuitStatus?: string;
-}
+const rateLimiter = createRateLimiter('orders');
 
 /**
  * Generates an order ID adhering to canonical GP-2026-<6-character alphanumeric> format
@@ -43,53 +40,74 @@ async function generateUniquePin(): Promise<string> {
 }
 
 export async function POST(request: Request) {
+  const requestId = generateRequestId();
+  const logger = createRequestLogger({ requestId, route: '/api/orders', method: 'POST' });
+
+  // Rate Limiting
+  const limit = rateLimiter.consume();
+  if (!limit.allowed && limit.response) {
+    logger.log({ status: 429, error: 'Rate limit exceeded' });
+    return limit.response;
+  }
+
   try {
-    const body = (await request.json()) as CreateOrderRequest;
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      logger.log({ status: 400, error: 'Malformed JSON payload' });
+      return NextResponse.json(
+        { success: false, error: 'Invalid JSON request body' },
+        { status: 400 }
+      );
+    }
+
+    // Zod validation
+    const parsed = CreateOrderSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+      logger.log({ status: 400, error: errorMsg });
+      return NextResponse.json(
+        { success: false, error: errorMsg, details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
     const {
       items,
-      stationId = 'M2',
+      pickupStationId,
+      stationId,
       isGroupOrder = false,
+      seatNote,
       ticketCode = 'GP-3820-X',
       promoCode,
-      circuitStatus = 'GREEN_FLAG',
-    } = body;
+      circuitStatus,
+    } = parsed.data;
 
-    // Validate empty items
-    if (!items || items.length === 0) {
-      return NextResponse.json(
-        { success: false, error: 'Order must contain at least one item' },
-        { status: 400 }
-      );
-    }
+    const chosenStationId = pickupStationId || stationId || 'M2';
 
-    // Validate positive quantities
-    const invalidItems = items.filter((i) => !i.quantity || i.quantity <= 0);
-    if (invalidItems.length > 0) {
-      return NextResponse.json(
-        { success: false, error: 'All order items must have a positive quantity' },
-        { status: 400 }
-      );
-    }
-
-    // 1. Authoritative Pricing via calculateOrderPricing
-    const pricing = calculateOrderPricing(items, promoCode, circuitStatus);
+    // 1. Authoritative Pricing via calculateOrderPricing with live CircuitState
+    const activeCircuit = await db.getCircuitState();
+    const effectiveCircuit = circuitStatus || activeCircuit;
+    const pricing = calculateOrderPricing(items, promoCode, effectiveCircuit);
 
     // Standardize items with canonical catalog data
     const canonicalItems: OrderItemRecord[] = items.map((i) => {
-      const catItem = CATALOG_BY_ID.get(i.itemId || '');
+      const rawId = i.itemId || i.id || i.sku || '';
+      const catItem = CATALOG_BY_ID.get(rawId);
       return {
-        itemId: catItem ? catItem.id : i.itemId,
-        name: catItem ? catItem.name : i.name,
+        itemId: catItem ? catItem.id : rawId,
+        name: catItem ? catItem.name : i.name || 'Concession Item',
         quantity: i.quantity,
-        unitPrice: catItem ? catItem.price : i.unitPrice,
-        sku: catItem ? catItem.id : i.sku,
+        unitPrice: catItem ? catItem.price : i.unitPrice ?? 0,
+        sku: catItem ? catItem.id : rawId,
         image: catItem ? catItem.image : i.image,
       };
     });
 
-    // 2. Concession Pod lookup & Locker assignment
-    const targetPod = PIT_STOPS.find((p) => p.id === stationId) || PIT_STOPS[1]; // Default M2
-    const lockerCounter = `#0${Math.floor(1 + Math.random() * 8)}`;
+    // 2. Concession Pod lookup & Smart Locker Bay allocation (#01..#08)
+    const targetPod = PIT_STOPS.find((p) => p.id === chosenStationId) || PIT_STOPS[1]; // Default M2
+    const lockerCounter = await db.allocateLockerBay(targetPod.id);
     const pinCode = await generateUniquePin();
     const orderId = generateOrderId();
 
@@ -112,7 +130,7 @@ export async function POST(request: Request) {
 
     const signedPass = Ed25519PassEngine.issueSignedPass(passPayload);
 
-    // 4. Persist to Database with 7-day TTL
+    // 4. Build OrderRecord
     const nowIso = new Date().toISOString();
     const ttl = currentEpoch + 7 * 86400; // 7 days in epoch seconds
 
@@ -122,6 +140,7 @@ export async function POST(request: Request) {
       customerId: passPayload.customerId,
       ticketCode,
       isGroupOrder,
+      ...(seatNote ? { seatNote } : {}),
       items: canonicalItems,
       subtotal: pricing.subtotal,
       discountAmount: Number((pricing.dynamicYieldDiscount + pricing.voucherDiscount).toFixed(2)),
@@ -143,7 +162,31 @@ export async function POST(request: Request) {
       ttl,
     };
 
-    await db.createOrder(orderRecord);
+    // 5. Atomic Stock Decrement & Order Creation (TransactWriteItems)
+    const itemQuantities: Record<string, number> = {};
+    for (const item of canonicalItems) {
+      itemQuantities[item.itemId] = (itemQuantities[item.itemId] || 0) + item.quantity;
+    }
+
+    try {
+      await db.createOrderAtomic(orderRecord, itemQuantities);
+    } catch (dbErr) {
+      if (dbErr instanceof InsufficientStockError) {
+        logger.log({ status: 409, error: 'Insufficient stock', dbOp: 'createOrderAtomic' });
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'INSUFFICIENT_STOCK',
+            error: 'Insufficient stock for one or more requested items',
+            availableStock: dbErr.availableStock,
+          },
+          { status: 409 }
+        );
+      }
+      throw dbErr;
+    }
+
+    logger.log({ status: 201, dbOp: 'createOrderAtomic' });
 
     return NextResponse.json(
       {
@@ -156,6 +199,7 @@ export async function POST(request: Request) {
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.log({ status: 500, error: message });
     return NextResponse.json(
       { success: false, error: `Failed to process order creation: ${message}` },
       { status: 500 }
@@ -163,7 +207,24 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * GET /api/orders
+ * Strictly protected by X-Vendor-Pin. Fans query GET /api/orders/history?ticketCode=...
+ */
 export async function GET(request: Request) {
+  const requestId = generateRequestId();
+  const logger = createRequestLogger({ requestId, route: '/api/orders', method: 'GET' });
+
+  // Vendor PIN check
+  const auth = validateVendorAuth(request);
+  if (!auth.authenticated) {
+    logger.log({ status: 401, error: auth.error });
+    return NextResponse.json(
+      { success: false, error: auth.error || 'Unauthorized: Missing or invalid X-Vendor-Pin' },
+      { status: 401 }
+    );
+  }
+
   try {
     let ticketCode: string | null = null;
     try {
@@ -175,6 +236,7 @@ export async function GET(request: Request) {
 
     const orders = ticketCode ? await db.getOrders(ticketCode) : await db.getAllOrders();
 
+    logger.log({ status: 200, dbOp: 'getOrders' });
     return NextResponse.json({
       success: true,
       count: orders.length,
@@ -182,6 +244,7 @@ export async function GET(request: Request) {
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.log({ status: 500, error: message });
     return NextResponse.json(
       { success: false, error: `Failed to fetch orders: ${message}` },
       { status: 500 }

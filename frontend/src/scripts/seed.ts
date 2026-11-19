@@ -5,7 +5,7 @@ import { Ed25519PassEngine, OrderPassPayload } from '../lib/crypto/passEngine';
 
 async function seedDatabase() {
   console.log('====================================================');
-  console.log('AGPC "Pit Stop" Platform: Albert Park Circuit Seeder');
+  console.log('AGPC "Pit Stop" Platform: Albert Park Circuit Seeder (v3)');
   console.log('Target Environment: DynamoDB (or local memory store)');
   console.log('====================================================\n');
 
@@ -17,18 +17,44 @@ async function seedDatabase() {
     }`
   );
 
-  // 1. Seed Concession Items (Canonical 9 items)
-  console.log(`\n[1] Seeding ${CATALOG_ITEMS.length} canonical concession items with photographic assets...`);
+  // 1. Seed Race Control Circuit State (CIRCUIT#STATUS -> GREEN_FLAG)
+  console.log('\n[1] Seeding Live Race Control Flag Engine (CIRCUIT#STATUS)...');
+  const circuitState = await db.setCircuitState('GREEN_FLAG', 'seeder');
+  console.log(
+    `    ✓ Flag: ${circuitState.flag} (${circuitState.message}) - Dynamic Yield: -${circuitState.offPeakDiscountPct}%`
+  );
+
+  // 2. Seed Concession Items with Inventory Stock
+  console.log(`\n[2] Seeding ${CATALOG_ITEMS.length} canonical concession items with photographic assets & inventory...`);
   for (const item of CATALOG_ITEMS) {
-    await db.saveItem(item);
+    // Explicit stock calibrations: gp-cap-2026 (4), ferrari-tee (6)
+    let stock = item.stock ?? item.availableUnits ?? 50;
+    let isLimitedDrop = Boolean(item.isLimitedDrop);
+
+    if (item.id === 'gp-cap-2026') {
+      stock = 4;
+      isLimitedDrop = true;
+    } else if (item.id === 'ferrari-tee') {
+      stock = 6;
+      isLimitedDrop = true;
+    }
+
+    const itemToSave = {
+      ...item,
+      stock,
+      availableUnits: stock,
+      isLimitedDrop,
+    };
+
+    await db.saveItem(itemToSave);
     console.log(
       `    - [${item.category.toUpperCase()}] ${item.name} ($${item.price.toFixed(
         2
-      )}) - ${item.prepTime} [Stock: ${item.availableUnits}]`
+      )}) - ${item.prepTime} [Stock: ${stock}${isLimitedDrop ? ' - LIMITED DROP' : ''}]`
     );
   }
 
-  // 2. Seed 4 Pod Stations (Calibrated coordinates matching pitStopConstantData.tsx)
+  // 3. Seed 4 Pod Stations (Calibrated coordinates matching pitStopConstantData.tsx)
   const stations: StationRecord[] = [
     {
       id: 'M1',
@@ -76,14 +102,14 @@ async function seedDatabase() {
     },
   ];
 
-  console.log(`\n[2] Seeding ${stations.length} Trackside Concession Pods across Albert Park...`);
+  console.log(`\n[3] Seeding ${stations.length} Trackside Concession Pods across Albert Park...`);
   for (const pod of stations) {
     await db.saveStation(pod);
     console.log(`    - Pod ${pod.id}: ${pod.name} (${pod.distance}, Queue: ${pod.status})`);
   }
 
-  // 3. Seed Demo Grand Prix Fan Tickets (GP-3820-X & GP-9014-P)
-  console.log('\n[3] Seeding Grand Prix Tickets & Fan Profiles...');
+  // 4. Seed Demo Grand Prix Fan Tickets (GP-3820-X & GP-9014-P)
+  console.log('\n[4] Seeding Grand Prix Tickets & Fan Profiles...');
   const tickets: TicketProfile[] = [
     {
       ticketCode: 'GP-3820-X',
@@ -124,8 +150,8 @@ async function seedDatabase() {
     );
   }
 
-  // 4. Seed a Realistic Sample Order with Ed25519 Cryptographic Pass
-  console.log('\n[4] Generating Pre-Seeded Demonstration Order with Cryptographic Ed25519 Pass...');
+  // 5. Seed a Realistic Sample Order with Ed25519 Cryptographic Pass
+  console.log('\n[5] Generating Pre-Seeded Demonstration Order with Cryptographic Ed25519 Pass...');
   const currentEpoch = Math.floor(Date.now() / 1000);
   const sampleOrderId = 'GP-2026-X9K2P4';
   const samplePin = '8821';

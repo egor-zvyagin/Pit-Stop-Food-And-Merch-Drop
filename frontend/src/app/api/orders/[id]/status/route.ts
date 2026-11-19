@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { db, OrderRecord } from '@/lib/db/client';
 import { validateVendorAuth } from '@/lib/auth/vendorAuth';
+import { UpdateOrderStatusSchema } from '@/lib/validation/schemas';
+import { createRateLimiter } from '@/lib/validation/rateLimit';
+import { createRequestLogger, generateRequestId } from '@/lib/logger';
+
+const rateLimiter = createRateLimiter('vendor');
 
 export async function GET(
   request: Request,
@@ -60,46 +65,49 @@ export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  const requestId = generateRequestId();
+  const logger = createRequestLogger({ requestId, route: `/api/orders/${params?.id}/status`, method: 'PATCH' });
+
+  // Rate Limiting
+  const limit = rateLimiter.consume();
+  if (!limit.allowed && limit.response) {
+    logger.log({ status: 429, error: 'Rate limit exceeded' });
+    return limit.response;
+  }
+
   try {
     const { id } = params;
-
-    const body = (await request.json().catch(() => ({}))) as {
-      status?: OrderRecord['status'];
-      pinCode?: string;
-    };
-
-    if (!id || !body.status) {
+    if (!id) {
+      logger.log({ status: 400, error: 'Order ID is required' });
       return NextResponse.json(
-        { success: false, error: 'Order ID and new status are required' },
+        { success: false, error: 'Order ID is required' },
         { status: 400 }
       );
     }
 
-    const normalizedStatus =
-      (body.status as string) === 'COLLECTED'
-        ? ('COMPLETED' as OrderRecord['status'])
-        : body.status;
+    let rawBody: unknown = {};
+    try {
+      rawBody = await request.json();
+    } catch {
+      // empty json body
+    }
 
-    const validStatuses: OrderRecord['status'][] = [
-      'RECEIVED',
-      'PREPARING',
-      'READY_FOR_PICKUP',
-      'COMPLETED',
-    ];
-
-    if (!validStatuses.includes(normalizedStatus)) {
+    const parsed = UpdateOrderStatusSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      const errorMsg = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+      logger.log({ status: 400, error: errorMsg });
       return NextResponse.json(
-        {
-          success: false,
-          error: `Invalid status '${body.status}'. Must be one of: ${validStatuses.join(', ')}`,
-        },
+        { success: false, error: errorMsg, details: parsed.error.issues },
         { status: 400 }
       );
     }
+
+    const { status: targetStatus, pinCode: bodyPin } = parsed.data;
 
     // Verify order exists before updating
     const existing = (await db.getOrderById(id)) || (await db.getOrderByPin(id));
     if (!existing) {
+      logger.log({ status: 404, error: `Order '${id}' not found` });
       return NextResponse.json(
         { success: false, error: `Order '${id}' not found` },
         { status: 404 }
@@ -113,16 +121,17 @@ export async function PATCH(
     if (!auth.authenticated) {
       const clientPin =
         request.headers.get('x-order-pin') ||
-        body.pinCode ||
+        bodyPin ||
         '';
 
       const isFanSelfCollection =
-        normalizedStatus === 'COMPLETED' &&
+        targetStatus === 'COMPLETED' &&
         (existing.status === 'READY_FOR_PICKUP' ||
           existing.status === 'COMPLETED' ||
           (clientPin && clientPin === existing.pinCode));
 
       if (!isFanSelfCollection) {
+        logger.log({ status: 401, error: auth.error });
         return NextResponse.json(
           {
             success: false,
@@ -134,7 +143,7 @@ export async function PATCH(
     }
 
     // When status transitions to COMPLETED, auto-award loyalty points idempotently
-    if (normalizedStatus === 'COMPLETED' && existing.status !== 'COMPLETED') {
+    if (targetStatus === 'COMPLETED' && existing.status !== 'COMPLETED') {
       const pointsToAward =
         existing.loyaltyPointsEarned || Math.round(existing.total * 2);
       await db.awardTicketPoints(
@@ -144,15 +153,17 @@ export async function PATCH(
       );
     }
 
-    const updated = await db.updateOrderStatus(existing.orderId, normalizedStatus);
+    const updated = await db.updateOrderStatus(existing.orderId, targetStatus as OrderRecord['status']);
+    logger.log({ status: 200, dbOp: 'updateOrderStatus' });
 
     return NextResponse.json({
       success: true,
-      message: `Order status updated to ${body.status}`,
+      message: `Order status updated to ${targetStatus}`,
       order: updated,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    logger.log({ status: 500, error: message });
     return NextResponse.json(
       { success: false, error: `Failed to update order status: ${message}` },
       { status: 500 }

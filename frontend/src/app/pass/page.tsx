@@ -7,6 +7,7 @@ import { useOrder } from "@/context/OrderContext";
 import { COLLECT_STATUS, CollectStatus } from "@/data/collectConstantData";
 import { CheckCircle2, ArrowLeft, Clock, ShieldCheck, Check, Loader2 } from "lucide-react";
 import PodDirectionsPanel from "@/components/pitstop/PodDirectionsPanel";
+import ShareTrackerButton from "@/components/collect/ShareTrackerButton";
 
 export default function OrderPassPage() {
   const { activeOrder: orderContextOrder, updateActiveOrderStatus } = useOrder();
@@ -287,6 +288,8 @@ export default function OrderPassPage() {
 
         {/* Offline Cache & Actions */}
         <div className="px-screen pt-standard space-y-compact">
+          <ShareTrackerButton orderId={order.orderId} className="w-full" />
+
           <button
             onClick={() => setOfflineSaved(true)}
             className={`w-full min-h-tap py-small rounded-large border text-body font-display font-bold uppercase tracking-wider flex items-center justify-center gap-compact transition-all ${

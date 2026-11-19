@@ -1,7 +1,7 @@
 import { CatalogItem } from '@/lib/types';
 
 /**
- * Pit Stop v2: Canonical Trackside Catalog
+ * Pit Stop v3: Canonical Trackside Catalog
  * Standardized across Albert Park Circuit Concession Pods M1-M4
  */
 export const CATALOG_ITEMS: CatalogItem[] = [
@@ -17,6 +17,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'HOT SELLER',
     inStock: true,
     availableUnits: 75,
+    stock: 75,
     description: 'Double Angus beef, brioche bun, house-made pickle, melted cheddar & secret burger sauce.',
     isAlcoholic: false,
   },
@@ -32,6 +33,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'QUICK GRAB',
     inStock: true,
     availableUnits: 60,
+    stock: 60,
     description: 'Crispy skin-on fries, 12-hr slow-smoked brisket, pickled jalapeños & warm queso.',
     isAlcoholic: false,
   },
@@ -47,6 +49,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'HOT SELLER',
     inStock: true,
     availableUnits: 45,
+    stock: 45,
     description: 'San Marzano tomato sugo, fresh buffalo mozzarella, fragrant basil on woodfired crust.',
     isAlcoholic: false,
   },
@@ -62,6 +65,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'ICE COLD',
     inStock: true,
     availableUnits: 50,
+    stock: 50,
     description: 'Melbourne micro-brewery cold-stored crisp draught lager (4x 375ml cans). 18+ only.',
     isAlcoholic: true,
   },
@@ -77,6 +81,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'CHILLED',
     inStock: true,
     availableUnits: 120,
+    stock: 120,
     description: 'Classic Red Bull energy 250ml can, kept chilled at sub-zero temperatures.',
     isAlcoholic: false,
   },
@@ -92,6 +97,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'COLD',
     inStock: true,
     availableUnits: 150,
+    stock: 150,
     description: 'Chilled 600ml Australian spring water for high-heat trackside hydration.',
     isAlcoholic: false,
   },
@@ -104,10 +110,12 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     originalPrice: 75.0,
     image: '/images/cap.jpg',
     prepTime: 'Pre-Packaged in Locker',
-    tag: 'OFFICIAL 2026',
+    tag: 'LIMITED DROP',
     inStock: true,
-    availableUnits: 30,
-    description: 'Limited edition high-crown snapback with Albert Park track outline embroidery.',
+    availableUnits: 4,
+    stock: 4,
+    isLimitedDrop: true,
+    description: 'Limited edition high-crown snapback with Albert Park track outline embroidery. Only 4 left!',
     isAlcoholic: false,
   },
   {
@@ -119,10 +127,12 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     originalPrice: 110.0,
     image: '/images/tee.jpg',
     prepTime: 'Pre-Packaged in Locker',
-    tag: 'TEAM MERCH',
+    tag: 'LIMITED DROP',
     inStock: true,
-    availableUnits: 25,
-    description: 'Official 2026 Scuderia Ferrari driver edition lightweight breathable jersey (Size L).',
+    availableUnits: 6,
+    stock: 6,
+    isLimitedDrop: true,
+    description: 'Official 2026 Scuderia Ferrari driver edition lightweight breathable jersey (Size L). Only 6 left!',
     isAlcoholic: false,
   },
   {
@@ -137,6 +147,7 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     tag: 'TRACKSIDE ESSENTIAL',
     inStock: true,
     availableUnits: 80,
+    stock: 80,
     description: '28dB SNR high-attenuation motorsport hearing protection with lanyard & case.',
     isAlcoholic: false,
   },

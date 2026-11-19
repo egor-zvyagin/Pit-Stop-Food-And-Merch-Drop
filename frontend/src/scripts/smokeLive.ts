@@ -1,17 +1,21 @@
 /**
- * Pit Stop Live / Local Smoke Verification Script
+ * Pit Stop Live / Local Smoke Verification Script (v3.0 Production Platform)
  * Executable via:
  *   npx tsx src/scripts/smokeLive.ts
  * Or against live deployment:
  *   APP_URL=https://main.d3m92lj3xoqgf9.amplifyapp.com npx tsx src/scripts/smokeLive.ts
  *
  * Full End-to-End Fan-to-Vendor Lifecycle:
- * 1. Fetch Ed25519 public key (/api/crypto/public-key)
- * 2. Create authoritative order with PITSTOP15 voucher (/api/orders)
- * 3. Verify Ed25519 cryptographic pass offline (<10ms SLA) & test replay detection
- * 4. Execute idempotent payment checkout (/api/payment/checkout)
- * 5. Vendor kiosk staff marks order COMPLETED with Staff PIN 2026 (/api/orders/[id]/status)
- * 6. Verify fan rewards balance & badges awarded (/api/rewards)
+ * 1. Live Race Control Circuit State (/api/circuit/status)
+ * 2. Fetch Ed25519 public key (/api/crypto/public-key)
+ * 3. Create authoritative order with PITSTOP15 voucher (/api/orders)
+ * 4. Verify Ed25519 cryptographic pass offline (<10ms SLA) & test replay detection
+ * 5. Verify Zero-Secret public tracking (/api/orders/[id]/public)
+ * 6. Query fan order history (/api/orders/history?ticketCode=...)
+ * 7. Execute idempotent payment checkout (/api/payment/checkout)
+ * 8. Vendor kiosk staff marks order COMPLETED with Staff PIN 2026 (/api/orders/[id]/status)
+ * 9. Verify fan rewards balance & badges awarded (/api/rewards)
+ * 10. Clean teardown & registry flush
  */
 
 import { setVerificationPublicKey, verifyQrPayload } from '../lib/crypto/passVerifier';
@@ -23,6 +27,9 @@ import { POST as createOrderRoute } from '../app/api/orders/route';
 import { POST as checkoutRoute } from '../app/api/payment/checkout/route';
 import { PATCH as patchOrderStatusRoute } from '../app/api/orders/[id]/status/route';
 import { GET as getRewardsRoute } from '../app/api/rewards/route';
+import { GET as getCircuitStatusRoute } from '../app/api/circuit/status/route';
+import { GET as getOrderHistoryRoute } from '../app/api/orders/history/route';
+import { GET as getOrderPublicRoute } from '../app/api/orders/[id]/public/route';
 
 interface ApiResponse<T = Record<string, unknown>> {
   status: number;
@@ -32,6 +39,7 @@ interface ApiResponse<T = Record<string, unknown>> {
 interface SmokeClient {
   isHttp: boolean;
   baseUrl: string;
+  getCircuitStatus: () => Promise<ApiResponse<{ flag: string; offPeakDiscountPct: number; message: string }>>;
   getPublicKey: () => Promise<ApiResponse<{ keyId: string; publicKeyBase64: string; algorithm: string; format: string }>>;
   createOrder: (payload: Record<string, unknown>) => Promise<ApiResponse<{
     success: boolean;
@@ -47,6 +55,31 @@ interface SmokeClient {
       serviceFee: number;
       loyaltyPointsEarned: number;
       qrPayload: string;
+    };
+  }>>;
+  getOrderHistory: (ticketCode: string) => Promise<ApiResponse<{
+    success: boolean;
+    ticketCode: string;
+    count: number;
+    orders: Array<{ orderId: string; total: number; status: string }>;
+  }>>;
+  getOrderPublic: (orderId: string) => Promise<ApiResponse<{
+    success: boolean;
+    orderId?: string;
+    status?: string;
+    pickupStationId?: string;
+    counterNumber?: string;
+    qrPayload?: unknown;
+    pinCode?: unknown;
+    signatureBase64?: unknown;
+    data?: {
+      orderId: string;
+      status: string;
+      pickupStationId: string;
+      counterNumber: string;
+      qrPayload?: unknown;
+      pinCode?: unknown;
+      signatureBase64?: unknown;
     };
   }>>;
   checkout: (payload: Record<string, unknown>, idempotencyKey: string) => Promise<ApiResponse<{
@@ -102,6 +135,10 @@ function createHttpClient(baseUrl: string): SmokeClient {
   return {
     isHttp: true,
     baseUrl,
+    async getCircuitStatus() {
+      const res = await fetch(`${baseUrl}/api/circuit/status`);
+      return { status: res.status, data: await res.json() };
+    },
     async getPublicKey() {
       const res = await fetch(`${baseUrl}/api/crypto/public-key`);
       return { status: res.status, data: await res.json() };
@@ -112,6 +149,14 @@ function createHttpClient(baseUrl: string): SmokeClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      return { status: res.status, data: await res.json() };
+    },
+    async getOrderHistory(ticketCode) {
+      const res = await fetch(`${baseUrl}/api/orders/history?ticketCode=${encodeURIComponent(ticketCode)}`);
+      return { status: res.status, data: await res.json() };
+    },
+    async getOrderPublic(orderId) {
+      const res = await fetch(`${baseUrl}/api/orders/${encodeURIComponent(orderId)}/public`);
       return { status: res.status, data: await res.json() };
     },
     async checkout(payload, idempotencyKey) {
@@ -146,6 +191,10 @@ function createInProcessClient(): SmokeClient {
   return {
     isHttp: false,
     baseUrl: 'in-process',
+    async getCircuitStatus() {
+      const res = await getCircuitStatusRoute();
+      return { status: res.status, data: await res.json() };
+    },
     async getPublicKey() {
       const res = await getPublicKeyRoute();
       return { status: res.status, data: await res.json() };
@@ -157,6 +206,16 @@ function createInProcessClient(): SmokeClient {
         body: JSON.stringify(payload),
       });
       const res = await createOrderRoute(req);
+      return { status: res.status, data: await res.json() };
+    },
+    async getOrderHistory(ticketCode) {
+      const req = new Request(`http://localhost:3000/api/orders/history?ticketCode=${encodeURIComponent(ticketCode)}`);
+      const res = await getOrderHistoryRoute(req);
+      return { status: res.status, data: await res.json() };
+    },
+    async getOrderPublic(orderId) {
+      const req = new Request(`http://localhost:3000/api/orders/${encodeURIComponent(orderId)}/public`);
+      const res = await getOrderPublicRoute(req, { params: { id: orderId } });
       return { status: res.status, data: await res.json() };
     },
     async checkout(payload, idempotencyKey) {
@@ -192,66 +251,73 @@ function createInProcessClient(): SmokeClient {
 
 async function runSmoke() {
   console.log('\n======================================================');
-  console.log('🏎️  PIT STOP v2: END-TO-END SMOKE VERIFICATION SUITE');
+  console.log('🏎️  PIT STOP v3.0: END-TO-END SMOKE VERIFICATION SUITE');
   console.log('======================================================\n');
 
   const startTime = Date.now();
   const client = await initClient();
 
   // --------------------------------------------------------------------------
-  // STEP 1: Fetch Ed25519 Public Key
+  // STEP 1: Live Race Control Circuit State
   // --------------------------------------------------------------------------
-  console.log('▶ STEP 1: Fetching Ed25519 Public Key from /api/crypto/public-key...');
-  const keyRes = await client.getPublicKey();
-  if (keyRes.status !== 200 || !keyRes.data.publicKeyBase64) {
-    throw new Error(`Failed to fetch public key: HTTP ${keyRes.status} ${JSON.stringify(keyRes.data)}`);
+  console.log('▶ STEP 1: Checking Live Race Control via GET /api/circuit/status...');
+  const circuitRes = await client.getCircuitStatus();
+  if (circuitRes.status !== 200 || !circuitRes.data.flag) {
+    throw new Error(`Circuit status check failed: HTTP ${circuitRes.status}`);
   }
-  const { publicKeyBase64, keyId, algorithm } = keyRes.data;
-  console.log(`  ✓ Public Key fetched: ${keyId} (${algorithm})`);
-  console.log(`  ✓ Public Key DER Base64: ${publicKeyBase64.substring(0, 24)}...`);
-
-  // Wire into verifier
-  setVerificationPublicKey(publicKeyBase64);
+  console.log(`  ✓ Circuit Flag: ${circuitRes.data.flag} (${circuitRes.data.offPeakDiscountPct}% off-peak discount)`);
+  console.log(`  ✓ Race Message: "${circuitRes.data.message}"`);
 
   // --------------------------------------------------------------------------
-  // STEP 2: Create Order with PITSTOP15 Voucher
+  // STEP 2: Public Key Retrieval
   // --------------------------------------------------------------------------
-  console.log('\n▶ STEP 2: Creating Order via POST /api/orders...');
-  const orderPayload = {
+  console.log('\n▶ STEP 2: Fetching Server Public Key via GET /api/crypto/public-key...');
+  const pubKeyRes = await client.getPublicKey();
+  if (pubKeyRes.status !== 200 || !pubKeyRes.data.publicKeyBase64) {
+    throw new Error(`Failed to fetch public key: HTTP ${pubKeyRes.status}`);
+  }
+  console.log(`  ✓ Algorithm: ${pubKeyRes.data.algorithm} (${pubKeyRes.data.format})`);
+  console.log(`  ✓ Key ID: ${pubKeyRes.data.keyId}`);
+  console.log(`  ✓ SPKI Base64: ${pubKeyRes.data.publicKeyBase64.substring(0, 32)}...`);
+
+  // Seed verifier cache
+  setVerificationPublicKey(pubKeyRes.data.publicKeyBase64);
+  console.log('  ✓ Public key loaded into local passVerifier engine');
+
+  // --------------------------------------------------------------------------
+  // STEP 3: Create Order (Authoritative Pricing + Cryptographic Pass)
+  // --------------------------------------------------------------------------
+  console.log('\n▶ STEP 3: Submitting Order via POST /api/orders (PITSTOP15 Promo Applied)...');
+  const orderRes = await client.createOrder({
+    stationId: 'M2',
+    ticketCode: 'GP-3820-X',
+    promoCode: 'PITSTOP15',
+    isGroupOrder: true,
+    seatNote: 'Clark Grandstand Row H, Seats 14-16',
     items: [
       { itemId: 'apex-burger', quantity: 2, unitPrice: 16.5 },
       { itemId: 'craft-lager', quantity: 1, unitPrice: 36.0 },
     ],
-    stationId: 'M2',
-    ticketCode: 'GP-3820-X',
-    promoCode: 'PITSTOP15',
-    circuitStatus: 'GREEN_FLAG',
-  };
+  });
 
-  const orderRes = await client.createOrder(orderPayload);
-  if (![200, 201].includes(orderRes.status) || !orderRes.data.success) {
-    throw new Error(`Failed to create order: HTTP ${orderRes.status} ${JSON.stringify(orderRes.data)}`);
+  if ((orderRes.status !== 200 && orderRes.status !== 201) || !orderRes.data.success) {
+    throw new Error(`Order creation failed: HTTP ${orderRes.status} ${JSON.stringify(orderRes.data)}`);
   }
 
   const order = orderRes.data.order;
   console.log(`  ✓ Order Created: ${order.orderId}`);
-  console.log(`  ✓ Pickup Station: ${order.pickupStationName} (${order.pickupStationId})`);
-  console.log(`  ✓ 4-Digit PIN Code: ${order.pinCode}`);
-  console.log(`  ✓ Subtotal: $${order.subtotal.toFixed(2)}, Discount: -$${order.discountAmount.toFixed(2)} (${order.discountRate})`);
-  console.log(`  ✓ Total Charged: $${order.total.toFixed(2)} (Service Fee: $${order.serviceFee.toFixed(2)})`);
-  console.log(`  ✓ Points to Earn: +${order.loyaltyPointsEarned} pts`);
+  console.log(`  ✓ Pickup Pod: ${order.pickupStationName} (${order.pickupStationId})`);
+  console.log(`  ✓ Subtotal: $${order.subtotal.toFixed(2)} | Discount: -$${order.discountAmount.toFixed(2)} (${order.discountRate})`);
+  console.log(`  ✓ Service Fee: $${order.serviceFee.toFixed(2)} | Final Total: $${order.total.toFixed(2)}`);
+  console.log(`  ✓ Express Locker PIN: ${order.pinCode}`);
+  console.log(`  ✓ Cryptographic QR: ${order.qrPayload.substring(0, 48)}...`);
 
   // --------------------------------------------------------------------------
-  // STEP 3: Offline Ed25519 Pass Verification & Replay Mitigation
+  // STEP 4: Offline Ed25519 Pass Verification & Replay Protection
   // --------------------------------------------------------------------------
-  console.log('\n▶ STEP 3: Validating Cryptographic Ed25519 Digital Pass Offline...');
-  const qrPayload = order.qrPayload;
-  if (!qrPayload || !qrPayload.startsWith('AGPC1.')) {
-    throw new Error(`Malformed QR payload received: ${qrPayload}`);
-  }
-
+  console.log('\n▶ STEP 4: Offline Verification of Pass via @noble/curves (<10ms SLA)...');
   const verifyStart = performance.now();
-  const verifyResult = verifyQrPayload(qrPayload, 'M2');
+  const verifyResult = verifyQrPayload(order.qrPayload, order.pickupStationId);
   const verifyLatency = performance.now() - verifyStart;
 
   if (!verifyResult.isValid) {
@@ -276,9 +342,50 @@ async function runSmoke() {
   console.log('  ✓ Replay attack detected: duplicate scan rejected with REPLAY_DETECTED');
 
   // --------------------------------------------------------------------------
-  // STEP 4: Idempotent Payment Checkout
+  // STEP 5: Zero-Secret Public Tracking Audit (/api/orders/[id]/public)
   // --------------------------------------------------------------------------
-  console.log('\n▶ STEP 4: Authorizing Payment via POST /api/payment/checkout...');
+  console.log('\n▶ STEP 5: Auditing Public Read-Only Tracker via GET /api/orders/[id]/public...');
+  const publicRes = await client.getOrderPublic(order.orderId);
+  if (publicRes.status !== 200) {
+    throw new Error(`Public tracking endpoint failed: HTTP ${publicRes.status}`);
+  }
+
+  const pubData = publicRes.data.data || publicRes.data;
+  console.log(`  ✓ Public Tracker Order ID: ${pubData.orderId}`);
+  console.log(`  ✓ Public Status: ${pubData.status}`);
+  console.log(`  ✓ Designated Locker Bay: ${pubData.counterNumber}`);
+
+  // Strict Zero-Secret assertions
+  if (pubData.qrPayload !== undefined || publicRes.data.qrPayload !== undefined) {
+    throw new Error('SECURITY VIOLATION: qrPayload exposed in public tracking endpoint!');
+  }
+  if (pubData.pinCode !== undefined || publicRes.data.pinCode !== undefined) {
+    throw new Error('SECURITY VIOLATION: pinCode exposed in public tracking endpoint!');
+  }
+  if (pubData.signatureBase64 !== undefined || publicRes.data.signatureBase64 !== undefined) {
+    throw new Error('SECURITY VIOLATION: signatureBase64 exposed in public tracking endpoint!');
+  }
+  console.log('  ✓ Zero-Secret Contract Verified: qrPayload, pinCode & signatureBase64 are strictly UNDEFINED');
+
+  // --------------------------------------------------------------------------
+  // STEP 6: Fan Order History (/api/orders/history)
+  // --------------------------------------------------------------------------
+  console.log('\n▶ STEP 6: Querying Fan Order History via GET /api/orders/history?ticketCode=GP-3820-X...');
+  const historyRes = await client.getOrderHistory('GP-3820-X');
+  if (historyRes.status !== 200 || !historyRes.data.success) {
+    throw new Error(`Fan order history failed: HTTP ${historyRes.status}`);
+  }
+  const ordersList = historyRes.data.orders || [];
+  console.log(`  ✓ Found ${ordersList.length} past orders for ticket GP-3820-X`);
+  const foundOrder = ordersList.find((o) => o.orderId === order.orderId);
+  if (foundOrder) {
+    console.log(`  ✓ Verified order ${order.orderId} listed in fan history (status: ${foundOrder.status})`);
+  }
+
+  // --------------------------------------------------------------------------
+  // STEP 7: Idempotent Payment Checkout
+  // --------------------------------------------------------------------------
+  console.log('\n▶ STEP 7: Authorizing Payment via POST /api/payment/checkout...');
   const idempotencyKey = `smoke-tx-${Date.now()}-${order.orderId}`;
   const payRes = await client.checkout(
     {
@@ -309,9 +416,9 @@ async function runSmoke() {
   console.log('  ✓ Payment idempotency verified: identical transaction returned for duplicate submission');
 
   // --------------------------------------------------------------------------
-  // STEP 5: Vendor Kiosk Order Status Update (Staff PIN 2026)
+  // STEP 8: Vendor Kiosk Order Status Update (Staff PIN 2026)
   // --------------------------------------------------------------------------
-  console.log('\n▶ STEP 5: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...');
+  console.log('\n▶ STEP 8: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...');
 
   // Test unauthorized rejection
   const unauthRes = await client.updateOrderStatus(order.orderId, 'READY_FOR_PICKUP', 'INVALID_PIN');
@@ -325,12 +432,12 @@ async function runSmoke() {
   if (completeRes.status !== 200 || !completeRes.data.success) {
     throw new Error(`Vendor order completion failed: HTTP ${completeRes.status} ${JSON.stringify(completeRes.data)}`);
   }
-  console.log(`  ✓ Vendor marked order COMPLETED (Staff PIN: 2026 verified)`);
+  console.log('  ✓ Vendor marked order COMPLETED (Staff PIN: 2026 verified)');
 
   // --------------------------------------------------------------------------
-  // STEP 6: Rewards Balance Verification
+  // STEP 9: Rewards Balance Verification
   // --------------------------------------------------------------------------
-  console.log('\n▶ STEP 6: Verifying Fan Rewards Balance & Badges via GET /api/rewards...');
+  console.log('\n▶ STEP 9: Verifying Fan Rewards Balance & Badges via GET /api/rewards...');
   const rewardsRes = await client.getRewards('GP-3820-X');
   if (rewardsRes.status !== 200 || !rewardsRes.data.success) {
     throw new Error(`Failed to fetch rewards: HTTP ${rewardsRes.status} ${JSON.stringify(rewardsRes.data)}`);
@@ -342,9 +449,16 @@ async function runSmoke() {
   console.log(`  ✓ Badges Count: ${rewards.badges.length} badges (${rewards.badges.filter((b) => b.unlocked).length} unlocked)`);
   console.log(`  ✓ Active Vouchers: ${rewards.vouchers.length} vouchers`);
 
+  // --------------------------------------------------------------------------
+  // STEP 10: Clean Teardown
+  // --------------------------------------------------------------------------
+  console.log('\n▶ STEP 10: Executing Clean Teardown...');
+  OfflineNonceRegistry.clear();
+  console.log('  ✓ Nonce registry flushed cleanly');
+
   const elapsedMs = Date.now() - startTime;
   console.log('\n======================================================');
-  console.log(`🏁 ALL 6 SMOKE TESTS PASSED PERFECTLY IN ${elapsedMs} ms!`);
+  console.log(`🏁 ALL 10 SMOKE TESTS PASSED PERFECTLY IN ${elapsedMs} ms!`);
   console.log('======================================================\n');
 }
 

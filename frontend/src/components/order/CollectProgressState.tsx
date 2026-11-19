@@ -8,6 +8,7 @@ import type { ActiveOrder } from "@/components/order/OrderProvider";
 import type { PitStop } from "@/data/pitStopConstantData";
 import CollectPageHeader from "@/components/collect/CollectPageHeader";
 import CollectItemsCard from "@/components/collect/CollectItemsCard";
+import ShareTrackerButton from "@/components/collect/ShareTrackerButton";
 
 type CollectProgressStateProps = {
     order: ActiveOrder;
@@ -191,6 +192,9 @@ export default function CollectProgressState({
                 <CollectItemsCard
                     order={order}
                 />
+
+                {/* Share Live Tracker */}
+                <ShareTrackerButton orderId={order.orderId || order.reference} className="w-full" />
             </div>
         </div>
     );

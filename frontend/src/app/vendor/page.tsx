@@ -6,12 +6,20 @@ import { Icon } from '@iconify/react';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
 import { verifyQrPayload } from '@/lib/crypto/passVerifier';
 import { OfflineNonceRegistry } from '@/lib/crypto/nonceRegistry';
-import { OrderRecord } from '@/lib/db/client';
+import {
+  enqueueSyncAction,
+  flushSyncQueue,
+  listenToOnlineStatus,
+} from '@/lib/offline/syncQueue';
+import { LockerBayStatus, OrderRecord, OrderStatus } from '@/lib/types';
+import KioskTelemetryBar from '@/components/vendor/KioskTelemetryBar';
+import RaceControlPanel from '@/components/vendor/RaceControlPanel';
+import LockerBayGrid from '@/components/vendor/LockerBayGrid';
 
 interface OrderSummary {
   orderId: string;
   pinCode: string;
-  status: string;
+  status: OrderStatus | string;
   station: {
     id: string;
     name: string;
@@ -27,6 +35,7 @@ interface OrderSummary {
   total: number;
   qrPayload?: string;
   updatedAt?: string;
+  nonce?: string;
 }
 
 type BadgeState = 'NONE' | 'VALID' | 'INVALID' | 'REPLAY_DETECTED' | 'NUMERIC_FALLBACK';
@@ -45,6 +54,13 @@ export default function VendorTerminalPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [activeOrder, setActiveOrder] = useState<OrderSummary | null>(null);
 
+  // Airplane Mode Simulation & Offline Sync
+  const [airplaneMode, setAirplaneMode] = useState(false);
+  const [toastNotification, setToastNotification] = useState<{
+    message: string;
+    type: 'success' | 'warning' | 'info';
+  } | null>(null);
+
   // Verification Badge & Feedback
   const [badgeState, setBadgeState] = useState<BadgeState>('NONE');
   const [verificationFeedback, setVerificationFeedback] = useState<{
@@ -54,13 +70,24 @@ export default function VendorTerminalPage() {
     reason?: string;
   } | null>(null);
 
-  // Live Orders
+  // Live Orders & Locker Bays
   const [recentOrders, setRecentOrders] = useState<OrderSummary[]>([]);
+  const [lockerBays, setLockerBays] = useState<LockerBayStatus[]>([]);
 
   // Camera QR Scanner State
   const [scannerActive, setScannerActive] = useState(false);
   const [scannerError, setScannerError] = useState('');
   const html5QrCodeRef = useRef<{ stop: () => Promise<void>; clear: () => void } | null>(null);
+
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'warning' | 'info' = 'info') => {
+      setToastNotification({ message, type });
+      setTimeout(() => {
+        setToastNotification((curr) => (curr?.message === message ? null : curr));
+      }, 4000);
+    },
+    []
+  );
 
   // Hydrate PIN gate from sessionStorage
   useEffect(() => {
@@ -107,8 +134,13 @@ export default function VendorTerminalPage() {
 
   // Fetch recent orders
   const fetchOrders = useCallback(async () => {
+    if (airplaneMode) return; // Skip polling when in airplane mode
     try {
-      const res = await fetch('/api/orders');
+      const res = await fetch('/api/orders', {
+        headers: {
+          'X-Vendor-Pin': vendorPin,
+        },
+      });
       const data = await res.json();
       if (data.success && data.orders) {
         setRecentOrders(
@@ -132,15 +164,30 @@ export default function VendorTerminalPage() {
     } catch (err) {
       console.warn('Failed to fetch orders:', err);
     }
-  }, []);
+  }, [airplaneMode, vendorPin]);
 
   useEffect(() => {
-    if (isUnlocked) {
+    if (isUnlocked && !airplaneMode) {
       fetchOrders();
       const interval = setInterval(fetchOrders, 4000);
       return () => clearInterval(interval);
     }
-  }, [isUnlocked, fetchOrders]);
+  }, [isUnlocked, airplaneMode, fetchOrders]);
+
+  // Online status event listener & auto-sync
+  useEffect(() => {
+    const cleanup = listenToOnlineStatus(async () => {
+      if (!vendorPin || airplaneMode) return;
+      const { resolved, failed } = await flushSyncQueue(vendorPin);
+      if (resolved > 0) {
+        showToast(`Auto-Synced ${resolved} pending action(s) to cloud`, 'success');
+        fetchOrders();
+      } else if (failed > 0) {
+        showToast(`${failed} queued action(s) failed to sync`, 'warning');
+      }
+    });
+    return cleanup;
+  }, [vendorPin, airplaneMode, fetchOrders, showToast]);
 
   // Clean up camera scanner on unmount
   useEffect(() => {
@@ -246,39 +293,54 @@ export default function VendorTerminalPage() {
           setBadgeState('VALID');
           let synced = false;
 
-          try {
-            const res = await fetch(`/api/orders/${encodeURIComponent(qrResult.payload.orderId)}/status`);
-            const data = await res.json();
-            if (data.success && data.data) {
-              setActiveOrder(data.data);
-              synced = true;
+          if (!airplaneMode) {
+            try {
+              const res = await fetch(`/api/orders/${encodeURIComponent(qrResult.payload.orderId)}/status`);
+              const data = await res.json();
+              if (data.success && data.data) {
+                setActiveOrder({
+                  ...data.data,
+                  nonce: qrResult.payload.nonce,
+                });
+                synced = true;
+              }
+            } catch {
+              // Offline fallback
             }
-          } catch {
-            // Offline fallback
           }
 
           if (!synced) {
-            setActiveOrder({
-              orderId: qrResult.payload.orderId,
-              pinCode: qrResult.payload.orderId.replace('GP-', '').slice(-4),
-              status: 'READY_FOR_PICKUP',
-              station: {
-                id: qrResult.payload.targetStationId,
-                name: `Pit Stop ${qrResult.payload.targetStationId}`,
-                lockerNumber: '#04',
-                walkTimeMins: 2,
-              },
-              items: qrResult.payload.items.map((i) => ({
-                itemId: i.sku,
-                name: i.name,
-                quantity: i.quantity,
-                unitPrice: i.unitPriceCents / 100,
-              })),
-              total: qrResult.payload.items.reduce(
-                (sum, i) => sum + (i.unitPriceCents * i.quantity) / 100,
-                0
-              ),
-            });
+            // Offline fallback synthetic order
+            const existing = recentOrders.find((o) => o.orderId === qrResult.payload?.orderId);
+            if (existing) {
+              setActiveOrder({
+                ...existing,
+                nonce: qrResult.payload.nonce,
+              });
+            } else {
+              setActiveOrder({
+                orderId: qrResult.payload.orderId,
+                pinCode: qrResult.payload.orderId.replace('GP-', '').slice(-4),
+                status: 'READY_FOR_PICKUP',
+                station: {
+                  id: qrResult.payload.targetStationId,
+                  name: `Pit Stop ${qrResult.payload.targetStationId}`,
+                  lockerNumber: '#04',
+                  walkTimeMins: 2,
+                },
+                items: qrResult.payload.items.map((i) => ({
+                  itemId: i.sku,
+                  name: i.name,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPriceCents / 100,
+                })),
+                total: qrResult.payload.items.reduce(
+                  (sum, i) => sum + (i.unitPriceCents * i.quantity) / 100,
+                  0
+                ),
+                nonce: qrResult.payload.nonce,
+              });
+            }
           }
 
           setVerificationFeedback({
@@ -303,24 +365,58 @@ export default function VendorTerminalPage() {
 
       // 2. 4-Digit Numeric Fallback or Order Reference
       const lookupCode = trimmed.startsWith('GP-') ? trimmed : `GP-${trimmed}`;
-      const res = await fetch(`/api/orders/${encodeURIComponent(lookupCode)}/status`);
-      const data = await res.json();
-      const end = performance.now();
-      const latency = end - start;
 
-      if (data.success && data.data) {
-        setActiveOrder(data.data);
+      // Check local cached orders first
+      const localMatch = recentOrders.find(
+        (o) => o.orderId === lookupCode || o.pinCode === trimmed || o.orderId === trimmed
+      );
+
+      if (airplaneMode && localMatch) {
+        const end = performance.now();
+        setActiveOrder(localMatch);
         setBadgeState('NUMERIC_FALLBACK');
         setVerificationFeedback({
           valid: true,
-          latencyMs: latency,
-          message: `Order Located via Numeric Lookup (${latency.toFixed(2)} ms)`,
+          latencyMs: end - start,
+          message: `Order Located Offline (${(end - start).toFixed(2)} ms)`,
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (!airplaneMode) {
+        const res = await fetch(`/api/orders/${encodeURIComponent(lookupCode)}/status`);
+        const data = await res.json();
+        const end = performance.now();
+        const latency = end - start;
+
+        if (data.success && data.data) {
+          setActiveOrder(data.data);
+          setBadgeState('NUMERIC_FALLBACK');
+          setVerificationFeedback({
+            valid: true,
+            latencyMs: latency,
+            message: `Order Located via Numeric Lookup (${latency.toFixed(2)} ms)`,
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (localMatch) {
+        const end = performance.now();
+        setActiveOrder(localMatch);
+        setBadgeState('NUMERIC_FALLBACK');
+        setVerificationFeedback({
+          valid: true,
+          latencyMs: end - start,
+          message: `Order Located via Local Manifest (${(end - start).toFixed(2)} ms)`,
         });
       } else {
         setBadgeState('INVALID');
         setVerificationFeedback({
           valid: false,
-          latencyMs: latency,
+          latencyMs: 0,
           reason: 'NOT_FOUND',
           message: `Order '${trimmed}' not found in active station queue`,
         });
@@ -343,13 +439,44 @@ export default function VendorTerminalPage() {
     verifyPayload(passInput);
   };
 
-  // Quick Action Buttons with X-Vendor-Pin Header
+  // Quick Action Buttons with Offline Outbox Queueing
   const handleStatusAdvance = async (newStatus: 'PREPARING' | 'READY_FOR_PICKUP' | 'COMPLETED') => {
     if (!activeOrder) return;
     setActionLoading(true);
 
+    const targetOrderId = activeOrder.orderId;
+
+    // Helper to apply local state update
+    const applyLocalUpdate = () => {
+      setActiveOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
+      setRecentOrders((prev) =>
+        prev.map((o) => (o.orderId === targetOrderId ? { ...o, status: newStatus } : o))
+      );
+    };
+
+    // If Airplane Mode is enabled: directly queue offline and bypass server
+    if (airplaneMode) {
+      if (activeOrder.nonce) {
+        OfflineNonceRegistry.registerNonce(
+          activeOrder.nonce,
+          Math.floor(Date.now() / 1000) + 3600,
+          targetOrderId
+        );
+      }
+      enqueueSyncAction({
+        orderId: targetOrderId,
+        status: newStatus,
+        nonce: activeOrder.nonce,
+      });
+      applyLocalUpdate();
+      showToast('Queued for Cloud Sync (Offline)', 'warning');
+      setActionLoading(false);
+      return;
+    }
+
+    // Otherwise, attempt server sync
     try {
-      const res = await fetch(`/api/orders/${encodeURIComponent(activeOrder.orderId)}/status`, {
+      const res = await fetch(`/api/orders/${encodeURIComponent(targetOrderId)}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -360,23 +487,82 @@ export default function VendorTerminalPage() {
       const data = await res.json();
 
       if (data.success) {
-        setActiveOrder((prev) => (prev ? { ...prev, status: newStatus } : null));
+        applyLocalUpdate();
         fetchOrders();
+        showToast(`Order marked ${newStatus.replace('_', ' ')}`, 'success');
       } else {
         if (res.status === 401) {
           setIsUnlocked(false);
           setPinError('Invalid or expired Staff PIN. Please unlock terminal again.');
         } else {
-          alert(data.error || 'Failed to update order status');
+          showToast(data.error || 'Failed to update order status', 'warning');
         }
       }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Status update failed';
-      alert(`Error updating order: ${msg}`);
+    } catch {
+      // Network error occurred: graceful offline fallback
+      if (activeOrder.nonce) {
+        OfflineNonceRegistry.registerNonce(
+          activeOrder.nonce,
+          Math.floor(Date.now() / 1000) + 3600,
+          targetOrderId
+        );
+      }
+      enqueueSyncAction({
+        orderId: targetOrderId,
+        status: newStatus,
+        nonce: activeOrder.nonce,
+      });
+      applyLocalUpdate();
+      showToast('Queued for Cloud Sync (Offline)', 'warning');
     } finally {
       setActionLoading(false);
     }
   };
+
+  // Toggle Airplane Mode & trigger auto-sync on reconnect
+  const handleAirplaneModeToggle = async (enabled: boolean) => {
+    setAirplaneMode(enabled);
+    if (!enabled) {
+      // Disabling airplane mode -> auto flush sync queue
+      showToast('Connecting to trackside cloud network...', 'info');
+      try {
+        const { resolved, failed } = await flushSyncQueue(vendorPin);
+        if (resolved > 0) {
+          showToast(`✓ Synced ${resolved} pending action(s) to cloud!`, 'success');
+        } else if (failed > 0) {
+          showToast(`⚠ ${failed} action(s) failed cloud sync`, 'warning');
+        }
+        fetchOrders();
+      } catch {
+        showToast('Offline sync flush failed', 'warning');
+      }
+    } else {
+      showToast('Airplane Mode ON — Local offline mode active', 'warning');
+    }
+  };
+
+  // Selecting an order from Locker Grid
+  const handleSelectLockerOrder = (orderId: string) => {
+    const found = recentOrders.find((o) => o.orderId === orderId);
+    if (found) {
+      setActiveOrder(found);
+      setPassInput(orderId);
+      setBadgeState('NUMERIC_FALLBACK');
+      setVerificationFeedback({
+        valid: true,
+        latencyMs: 0,
+        message: `Loaded from locker bay ${found.station?.lockerNumber || ''}`,
+      });
+    } else {
+      setPassInput(orderId);
+      verifyPayload(orderId);
+    }
+  };
+
+  // Filter recent orders for selected station
+  const stationOrders = recentOrders.filter(
+    (o) => !o.station?.id || o.station.id === selectedStation
+  );
 
   // PIN Gate Screen
   if (!isUnlocked) {
@@ -399,7 +585,7 @@ export default function VendorTerminalPage() {
           <div className="rounded-xl bg-neutral-900/80 border border-neutral-800 p-3 text-xs text-neutral-300">
             <span className="font-bold text-amber-400">DEMO ACCESS:</span> Default staff PIN is{' '}
             <span className="font-mono font-bold text-white bg-neutral-800 px-2 py-0.5 rounded border border-neutral-700">
-              configured in server deployment
+              2026
             </span>
           </div>
 
@@ -438,6 +624,32 @@ export default function VendorTerminalPage() {
   // Full-Screen Vendor Terminal Kiosk UI
   return (
     <div className="min-h-screen bg-[#0B0E14] text-white flex flex-col">
+      {/* Toast Notification Banner */}
+      {toastNotification && (
+        <div
+          className={`fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-xs font-bold shadow-2xl border flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-200 ${
+            toastNotification.type === 'success'
+              ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50 shadow-emerald-900/30'
+              : toastNotification.type === 'warning'
+              ? 'bg-amber-950/90 text-amber-300 border-amber-500/50 shadow-amber-900/30'
+              : 'bg-neutral-900/90 text-neutral-200 border-neutral-700 shadow-black/50'
+          }`}
+        >
+          <Icon
+            icon={
+              toastNotification.type === 'success'
+                ? 'mdi:check-circle'
+                : toastNotification.type === 'warning'
+                ? 'mdi:alert-circle'
+                : 'mdi:information'
+            }
+            width={18}
+            height={18}
+          />
+          <span>{toastNotification.message}</span>
+        </div>
+      )}
+
       {/* Top Staff Navigation Header */}
       <header className="border-b border-neutral-800 bg-[#121620] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -452,6 +664,12 @@ export default function VendorTerminalPage() {
               <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
                 ACTIVE KIOSK
               </span>
+              {airplaneMode && (
+                <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                  <Icon icon="mdi:airplane" width={12} height={12} />
+                  AIRPLANE MODE
+                </span>
+              )}
             </div>
             <p className="text-xs text-neutral-400">
               Station {selectedStation} • Offline Asymmetric Ed25519 Verifier
@@ -496,332 +714,367 @@ export default function VendorTerminalPage() {
       </header>
 
       {/* Main Terminal Grid */}
-      <main className="flex-1 p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-7xl mx-auto w-full">
-        {/* Left Column: Scanner & Verification (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Scan & Input Card */}
-          <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Icon icon="mdi:qrcode-scan" width={22} height={22} className="text-red-500" />
-                <h2 className="font-display font-black text-lg uppercase tracking-wider text-white">
-                  Pass Verification Engine
-                </h2>
-              </div>
-              <span className="font-mono text-xs text-neutral-400">Target: Pod {selectedStation}</span>
-            </div>
+      <main className="flex-1 p-6 space-y-6 max-w-7xl mx-auto w-full">
+        {/* Top Telemetry KPI Bar */}
+        <KioskTelemetryBar
+          vendorPin={vendorPin}
+          activeOrdersCount={stationOrders.filter((o) => o.status !== 'COMPLETED').length}
+          lockerBays={lockerBays}
+          airplaneMode={airplaneMode}
+          onAirplaneModeToggle={handleAirplaneModeToggle}
+          onSyncComplete={(resolved) => {
+            if (resolved > 0) fetchOrders();
+          }}
+        />
 
-            {/* Camera Scanner Controls */}
-            <div>
-              {!scannerActive ? (
-                <button
-                  type="button"
-                  onClick={startScanner}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 font-display font-bold text-sm uppercase tracking-wider text-white transition-colors"
-                >
-                  <Icon icon="mdi:camera" width={20} height={20} className="text-red-400" />
-                  <span>Start Camera QR Scanner</span>
-                </button>
-              ) : (
-                <div className="space-y-3">
-                  <div
-                    id="qr-reader-container"
-                    className="w-full overflow-hidden rounded-xl border-2 border-red-500/50 bg-black min-h-[260px] flex items-center justify-center"
-                  />
+        {/* 2-Column Responsive Body */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column: Smart Locker Grid & Pass Verification Engine (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* Visual 8-Bay Locker Grid */}
+            <LockerBayGrid
+              stationId={selectedStation}
+              vendorPin={vendorPin}
+              activeOrderId={activeOrder?.orderId}
+              onSelectOrder={handleSelectLockerOrder}
+              recentOrders={recentOrders}
+              onBaysUpdated={(bays) => setLockerBays(bays)}
+            />
+
+            {/* Scan & Input Card */}
+            <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-5">
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Icon icon="mdi:qrcode-scan" width={22} height={22} className="text-red-500" />
+                  <h2 className="font-display font-black text-lg uppercase tracking-wider text-white">
+                    Pass Verification Engine
+                  </h2>
+                </div>
+                <span className="font-mono text-xs text-neutral-400">Target: Pod {selectedStation}</span>
+              </div>
+
+              {/* Camera Scanner Controls */}
+              <div>
+                {!scannerActive ? (
                   <button
                     type="button"
-                    onClick={stopScanner}
-                    className="w-full rounded-xl bg-neutral-800 border border-neutral-700 py-2 text-xs font-bold uppercase tracking-wider text-neutral-300 hover:text-white"
+                    onClick={startScanner}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 font-display font-bold text-sm uppercase tracking-wider text-white transition-colors"
                   >
-                    Close Camera Scanner
+                    <Icon icon="mdi:camera" width={20} height={20} className="text-red-400" />
+                    <span>Start Camera QR Scanner</span>
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <div
+                      id="qr-reader-container"
+                      className="w-full overflow-hidden rounded-xl border-2 border-red-500/50 bg-black min-h-[260px] flex items-center justify-center"
+                    />
+                    <button
+                      type="button"
+                      onClick={stopScanner}
+                      className="w-full rounded-xl bg-neutral-800 border border-neutral-700 py-2 text-xs font-bold uppercase tracking-wider text-neutral-300 hover:text-white"
+                    >
+                      Close Camera Scanner
+                    </button>
+                  </div>
+                )}
+                {scannerError && (
+                  <p className="text-xs text-amber-400 mt-2">{scannerError} (Use manual input below)</p>
+                )}
+              </div>
+
+              {/* Manual QR / Numeric Input Form */}
+              <form onSubmit={handleVerifyPass} className="space-y-3">
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400">
+                  Scan Pass Payload (AGPC1.*) or 4-Digit Pickup PIN
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={passInput}
+                    onChange={(e) => setPassInput(e.target.value)}
+                    placeholder="Paste QR string or enter 4-digit PIN..."
+                    className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-2.5 font-mono text-sm text-white placeholder:text-neutral-600 focus:border-red-500 focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || !passInput.trim()}
+                    className="rounded-xl bg-red-600 px-5 py-2.5 font-display font-bold text-sm uppercase tracking-wider text-white hover:bg-red-700 disabled:opacity-50 transition-colors shrink-0"
+                  >
+                    {loading ? 'Verifying...' : 'Verify'}
                   </button>
                 </div>
-              )}
-              {scannerError && (
-                <p className="text-xs text-amber-400 mt-2">{scannerError} (Use manual input below)</p>
-              )}
-            </div>
+              </form>
 
-            {/* Manual QR / Numeric Input Form */}
-            <form onSubmit={handleVerifyPass} className="space-y-3">
-              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400">
-                Scan Pass Payload (AGPC1.*) or 4-Digit Pickup PIN
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={passInput}
-                  onChange={(e) => setPassInput(e.target.value)}
-                  placeholder="Paste QR string or enter 4-digit PIN..."
-                  className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-2.5 font-mono text-sm text-white placeholder:text-neutral-600 focus:border-red-500 focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  disabled={loading || !passInput.trim()}
-                  className="rounded-xl bg-red-600 px-5 py-2.5 font-display font-bold text-sm uppercase tracking-wider text-white hover:bg-red-700 disabled:opacity-50 transition-colors shrink-0"
-                >
-                  {loading ? 'Verifying...' : 'Verify'}
-                </button>
+              {/* Quick Demo Test Payloads */}
+              <div className="pt-2 border-t border-neutral-800">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
+                  Quick Verification Test Payloads
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const sample = 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821';
+                      setPassInput(sample);
+                      verifyPayload(sample);
+                    }}
+                    className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+                  >
+                    Sample QR (GP-8821)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassInput('8821');
+                      verifyPayload('8821');
+                    }}
+                    className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+                  >
+                    PIN 8821
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      OfflineNonceRegistry.clear();
+                      showToast('Offline nonce registry cleared', 'info');
+                    }}
+                    className="rounded-lg border border-neutral-800 bg-neutral-900/50 px-2.5 py-1 text-xs text-neutral-500 hover:text-neutral-300"
+                  >
+                    Clear Nonce Cache
+                  </button>
+                </div>
               </div>
-            </form>
 
-            {/* Quick Demo Test Payloads */}
-            <div className="pt-2 border-t border-neutral-800">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
-                Quick Verification Test Payloads
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const sample = 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821';
-                    setPassInput(sample);
-                    verifyPayload(sample);
-                  }}
-                  className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
+              {/* Verification Status Badge */}
+              {badgeState !== 'NONE' && (
+                <div
+                  className={`rounded-xl border p-4 space-y-1 transition-all ${
+                    badgeState === 'VALID'
+                      ? 'border-emerald-500/50 bg-emerald-950/30'
+                      : badgeState === 'REPLAY_DETECTED'
+                      ? 'border-amber-500/50 bg-amber-950/40'
+                      : badgeState === 'NUMERIC_FALLBACK'
+                      ? 'border-blue-500/50 bg-blue-950/30'
+                      : 'border-red-500/50 bg-red-950/30'
+                  }`}
                 >
-                  Sample QR (GP-8821)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPassInput('8821');
-                    verifyPayload('8821');
-                  }}
-                  className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
-                >
-                  PIN 8821
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    OfflineNonceRegistry.clear();
-                    alert('Offline nonce registry cleared');
-                  }}
-                  className="rounded-lg border border-neutral-800 bg-neutral-900/50 px-2.5 py-1 text-xs text-neutral-500 hover:text-neutral-300"
-                >
-                  Clear Nonce Cache
-                </button>
-              </div>
-            </div>
+                  <div className="flex items-center gap-2">
+                    {badgeState === 'VALID' && (
+                      <>
+                        <Icon icon="mdi:shield-check" width={22} height={22} className="text-emerald-400" />
+                        <span className="font-display font-black text-sm uppercase tracking-wider text-emerald-400">
+                          Ed25519 Valid
+                        </span>
+                      </>
+                    )}
+                    {badgeState === 'REPLAY_DETECTED' && (
+                      <>
+                        <Icon icon="mdi:shield-alert" width={22} height={22} className="text-amber-400" />
+                        <span className="font-display font-black text-sm uppercase tracking-wider text-amber-400">
+                          Replay Detected
+                        </span>
+                      </>
+                    )}
+                    {badgeState === 'INVALID' && (
+                      <>
+                        <Icon icon="mdi:shield-remove" width={22} height={22} className="text-red-400" />
+                        <span className="font-display font-black text-sm uppercase tracking-wider text-red-400">
+                          Ed25519 Invalid
+                        </span>
+                      </>
+                    )}
+                    {badgeState === 'NUMERIC_FALLBACK' && (
+                      <>
+                        <Icon icon="mdi:numeric" width={22} height={22} className="text-blue-400" />
+                        <span className="font-display font-black text-sm uppercase tracking-wider text-blue-400">
+                          Numeric Fallback
+                        </span>
+                      </>
+                    )}
+                    {verificationFeedback?.latencyMs !== undefined && (
+                      <span className="ml-auto font-mono text-[11px] text-neutral-400">
+                        {verificationFeedback.latencyMs.toFixed(2)} ms
+                      </span>
+                    )}
+                  </div>
 
-            {/* Verification Status Badge */}
-            {badgeState !== 'NONE' && (
-              <div
-                className={`rounded-xl border p-4 space-y-1 transition-all ${
-                  badgeState === 'VALID'
-                    ? 'border-emerald-500/50 bg-emerald-950/30'
-                    : badgeState === 'REPLAY_DETECTED'
-                    ? 'border-amber-500/50 bg-amber-950/40'
-                    : badgeState === 'NUMERIC_FALLBACK'
-                    ? 'border-blue-500/50 bg-blue-950/30'
-                    : 'border-red-500/50 bg-red-950/30'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {badgeState === 'VALID' && (
-                    <>
-                      <Icon icon="mdi:shield-check" width={22} height={22} className="text-emerald-400" />
-                      <span className="font-display font-black text-sm uppercase tracking-wider text-emerald-400">
-                        Ed25519 Valid
-                      </span>
-                    </>
-                  )}
-                  {badgeState === 'REPLAY_DETECTED' && (
-                    <>
-                      <Icon icon="mdi:shield-alert" width={22} height={22} className="text-amber-400" />
-                      <span className="font-display font-black text-sm uppercase tracking-wider text-amber-400">
-                        Replay Detected
-                      </span>
-                    </>
-                  )}
-                  {badgeState === 'INVALID' && (
-                    <>
-                      <Icon icon="mdi:shield-remove" width={22} height={22} className="text-red-400" />
-                      <span className="font-display font-black text-sm uppercase tracking-wider text-red-400">
-                        Ed25519 Invalid
-                      </span>
-                    </>
-                  )}
-                  {badgeState === 'NUMERIC_FALLBACK' && (
-                    <>
-                      <Icon icon="mdi:numeric" width={22} height={22} className="text-blue-400" />
-                      <span className="font-display font-black text-sm uppercase tracking-wider text-blue-400">
-                        Numeric Fallback
-                      </span>
-                    </>
-                  )}
-                  {verificationFeedback?.latencyMs !== undefined && (
-                    <span className="ml-auto font-mono text-[11px] text-neutral-400">
-                      {verificationFeedback.latencyMs.toFixed(2)} ms
-                    </span>
+                  {verificationFeedback?.message && (
+                    <p className="text-xs text-neutral-300 font-medium">{verificationFeedback.message}</p>
                   )}
                 </div>
+              )}
+            </div>
 
-                {verificationFeedback?.message && (
-                  <p className="text-xs text-neutral-300 font-medium">{verificationFeedback.message}</p>
-                )}
+            {/* Active Order Details & Manifest */}
+            {activeOrder && (
+              <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-3">
+                  <div>
+                    <span className="font-mono text-xs font-bold text-red-400">{activeOrder.orderId}</span>
+                    <h3 className="font-display font-black text-xl uppercase tracking-wider text-white">
+                      Pickup PIN: {activeOrder.pinCode}
+                    </h3>
+                  </div>
+
+                  <div className="text-right">
+                    <span
+                      className={`inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+                        activeOrder.status === 'COMPLETED'
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : activeOrder.status === 'READY_FOR_PICKUP'
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}
+                    >
+                      {activeOrder.status}
+                    </span>
+                    <div className="text-xs text-neutral-400 mt-1 font-mono">
+                      Locker: {activeOrder.station.lockerNumber}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Order Items List */}
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">Order Items</div>
+                  <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3 divide-y divide-neutral-800">
+                    {activeOrder.items.map((item, idx) => (
+                      <div key={idx} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between text-sm">
+                        <div className="font-medium text-white">
+                          <span className="font-bold text-red-400 mr-2">{item.quantity}×</span>
+                          {item.name}
+                        </div>
+                        <div className="font-mono font-bold text-neutral-300">
+                          ${(item.unitPrice * item.quantity).toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="pt-2 flex items-center justify-between font-bold text-sm">
+                      <span className="text-neutral-400 uppercase">Total Value</span>
+                      <span className="font-mono text-amber-400">${activeOrder.total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Action Buttons */}
+                <div className="pt-2 border-t border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-400">
+                    <span>Quick Lifecycle Actions</span>
+                    {airplaneMode && (
+                      <span className="text-amber-400 font-mono text-[10px]">
+                        [OUTBOX MODE]
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      disabled={actionLoading || activeOrder.status === 'PREPARING'}
+                      onClick={() => handleStatusAdvance('PREPARING')}
+                      className="rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-amber-300 disabled:opacity-40 transition-colors"
+                    >
+                      Start Preparing
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionLoading || activeOrder.status === 'READY_FOR_PICKUP'}
+                      onClick={() => handleStatusAdvance('READY_FOR_PICKUP')}
+                      className="rounded-xl border border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-blue-300 disabled:opacity-40 transition-colors"
+                    >
+                      Mark Ready
+                    </button>
+                    <button
+                      type="button"
+                      disabled={actionLoading || activeOrder.status === 'COMPLETED'}
+                      onClick={() => handleStatusAdvance('COMPLETED')}
+                      className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-emerald-300 disabled:opacity-40 transition-colors shadow-lg shadow-emerald-950/50"
+                    >
+                      Complete Collection
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Active Order Details Card */}
-          {activeOrder && (
+          {/* Right Column: Race Control Panel & Station Queue (5 cols) */}
+          <div className="lg:col-span-5 space-y-6">
+            {/* Live Race Control & Merch Drops */}
+            <RaceControlPanel vendorPin={vendorPin} />
+
+            {/* Active Station Queue */}
             <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-3">
-                <div>
-                  <span className="font-mono text-xs font-bold text-red-400">{activeOrder.orderId}</span>
-                  <h3 className="font-display font-black text-xl uppercase tracking-wider text-white">
-                    Pickup PIN: {activeOrder.pinCode}
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Icon icon="mdi:tray-full" width={20} height={20} className="text-neutral-400" />
+                  <h3 className="font-display font-black text-base uppercase tracking-wider text-white">
+                    Station {selectedStation} Queue ({stationOrders.length})
                   </h3>
                 </div>
-
-                <div className="text-right">
-                  <span
-                    className={`inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
-                      activeOrder.status === 'COMPLETED'
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : activeOrder.status === 'READY_FOR_PICKUP'
-                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                        : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                    }`}
-                  >
-                    {activeOrder.status}
-                  </span>
-                  <div className="text-xs text-neutral-400 mt-1 font-mono">
-                    Locker: {activeOrder.station.lockerNumber}
-                  </div>
-                </div>
+                <button
+                  type="button"
+                  onClick={fetchOrders}
+                  disabled={airplaneMode}
+                  className="text-neutral-400 hover:text-white p-1 disabled:opacity-40 transition-colors"
+                  aria-label="Refresh orders"
+                >
+                  <Icon icon="mdi:refresh" width={18} height={18} />
+                </button>
               </div>
 
-              {/* Order Items List */}
-              <div className="space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">Order Items</div>
-                <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3 divide-y divide-neutral-800">
-                  {activeOrder.items.map((item, idx) => (
-                    <div key={idx} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between text-sm">
-                      <div className="font-medium text-white">
-                        <span className="font-bold text-red-400 mr-2">{item.quantity}×</span>
-                        {item.name}
+              <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                {stationOrders.length === 0 ? (
+                  <div className="text-center py-8 text-neutral-500 text-sm">
+                    No orders currently active at Station {selectedStation}
+                  </div>
+                ) : (
+                  stationOrders.map((ord) => (
+                    <div
+                      key={ord.orderId}
+                      onClick={() => {
+                        setActiveOrder(ord);
+                        setPassInput(ord.orderId);
+                        setBadgeState('NUMERIC_FALLBACK');
+                        setVerificationFeedback({
+                          valid: true,
+                          latencyMs: 0,
+                          message: `Loaded from active queue`,
+                        });
+                      }}
+                      className={`cursor-pointer rounded-xl border p-3 transition-all ${
+                        activeOrder?.orderId === ord.orderId
+                          ? 'border-red-500 bg-red-950/20 ring-1 ring-red-500/50'
+                          : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs font-bold text-red-400">{ord.orderId}</span>
+                        <span
+                          className={`text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
+                            ord.status === 'COMPLETED'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : ord.status === 'READY_FOR_PICKUP'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-amber-500/20 text-amber-400'
+                          }`}
+                        >
+                          {ord.status}
+                        </span>
                       </div>
-                      <div className="font-mono font-bold text-neutral-300">
-                        ${(item.unitPrice * item.quantity).toFixed(2)}
+
+                      <div className="mt-1 flex items-center justify-between text-xs text-neutral-400">
+                        <div>
+                          PIN: <span className="font-mono font-bold text-white">{ord.pinCode}</span> •{' '}
+                          {ord.station.lockerNumber}
+                        </div>
+                        <div className="font-mono font-bold text-white">${ord.total.toFixed(2)}</div>
                       </div>
                     </div>
-                  ))}
-                  <div className="pt-2 flex items-center justify-between font-bold text-sm">
-                    <span className="text-neutral-400 uppercase">Total Value</span>
-                    <span className="font-mono text-amber-400">${activeOrder.total.toFixed(2)}</span>
-                  </div>
-                </div>
+                  ))
+                )}
               </div>
-
-              {/* Quick Action Buttons */}
-              <div className="pt-2 border-t border-neutral-800 space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                  Quick Lifecycle Actions (X-Vendor-Pin: {vendorPin})
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    disabled={actionLoading || activeOrder.status === 'PREPARING'}
-                    onClick={() => handleStatusAdvance('PREPARING')}
-                    className="rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-amber-300 disabled:opacity-40 transition-colors"
-                  >
-                    Start Preparing
-                  </button>
-                  <button
-                    type="button"
-                    disabled={actionLoading || activeOrder.status === 'READY_FOR_PICKUP'}
-                    onClick={() => handleStatusAdvance('READY_FOR_PICKUP')}
-                    className="rounded-xl border border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-blue-300 disabled:opacity-40 transition-colors"
-                  >
-                    Mark Ready
-                  </button>
-                  <button
-                    type="button"
-                    disabled={actionLoading || activeOrder.status === 'COMPLETED'}
-                    onClick={() => handleStatusAdvance('COMPLETED')}
-                    className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-emerald-300 disabled:opacity-40 transition-colors"
-                  >
-                    Complete Collection
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right Column: Active Station Orders Queue (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Icon icon="mdi:tray-full" width={20} height={20} className="text-neutral-400" />
-                <h3 className="font-display font-black text-base uppercase tracking-wider text-white">
-                  Live Station Queue ({recentOrders.length})
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={fetchOrders}
-                className="text-neutral-400 hover:text-white p-1"
-                aria-label="Refresh orders"
-              >
-                <Icon icon="mdi:refresh" width={18} height={18} />
-              </button>
-            </div>
-
-            <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
-              {recentOrders.length === 0 ? (
-                <div className="text-center py-8 text-neutral-500 text-sm">
-                  No orders currently active at Station {selectedStation}
-                </div>
-              ) : (
-                recentOrders.map((ord) => (
-                  <div
-                    key={ord.orderId}
-                    onClick={() => {
-                      setActiveOrder(ord);
-                      setPassInput(ord.orderId);
-                      setBadgeState('NUMERIC_FALLBACK');
-                      setVerificationFeedback({
-                        valid: true,
-                        latencyMs: 0,
-                        message: `Loaded from active queue`,
-                      });
-                    }}
-                    className={`cursor-pointer rounded-xl border p-3 transition-all ${
-                      activeOrder?.orderId === ord.orderId
-                        ? 'border-red-500 bg-red-950/20'
-                        : 'border-neutral-800 bg-neutral-900/60 hover:border-neutral-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-bold text-red-400">{ord.orderId}</span>
-                      <span
-                        className={`text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
-                          ord.status === 'COMPLETED'
-                            ? 'bg-emerald-500/20 text-emerald-400'
-                            : ord.status === 'READY_FOR_PICKUP'
-                            ? 'bg-blue-500/20 text-blue-400'
-                            : 'bg-amber-500/20 text-amber-400'
-                        }`}
-                      >
-                        {ord.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-1 flex items-center justify-between text-xs text-neutral-400">
-                      <div>
-                        PIN: <span className="font-mono font-bold text-white">{ord.pinCode}</span> •{' '}
-                        {ord.station.lockerNumber}
-                      </div>
-                      <div className="font-mono font-bold text-white">${ord.total.toFixed(2)}</div>
-                    </div>
-                  </div>
-                ))
-              )}
             </div>
           </div>
         </div>

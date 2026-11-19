@@ -8,6 +8,7 @@ import Typography from "@/components/ui/Typography";
 import { PIT_STOPS, PitStop } from "@/data/pitStopConstantData";
 import SelectedPitStopCard from "./SelectedPitStopCard";
 import TracksideLocationBar from "./TracksideLocationBar";
+import CircuitFlagBanner from "./CircuitFlagBanner";
 import { useOrder } from "@/components/order/OrderProvider";
 import PitStopInfo from "../pitstop/PitStopInfo";
 import { useTracksideLocation } from "@/lib/geo/useTracksideLocation";
@@ -177,6 +178,11 @@ export default function HomeContent() {
           Tap a pit stop to see wait times and order from that location.
         </Typography>
       </section>
+
+      {/* Circuit Flag Banner */}
+      <div className="px-4 pt-3">
+        <CircuitFlagBanner />
+      </div>
 
       {/* Map */}
       <div id="pit-stop-map" className="px-4 pt-4">

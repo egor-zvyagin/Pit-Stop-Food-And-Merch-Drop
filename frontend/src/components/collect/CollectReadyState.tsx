@@ -11,6 +11,7 @@ import Typography from "@/components/ui/Typography";
 import CollectItemsCard from "./CollectItemsCard";
 import CollectPageHeader from "./CollectPageHeader";
 import PodDirectionsPanel from "@/components/pitstop/PodDirectionsPanel";
+import ShareTrackerButton from "./ShareTrackerButton";
 
 import type { ActiveOrder } from "@/components/order/OrderProvider";
 import type { PitStop } from "@/data/pitStopConstantData";
@@ -195,6 +196,9 @@ export default function CollectReadyState({
           <Icon icon="ph:arrows-out-simple-bold" width="16" height="16" />
           <span>View Fullscreen Wallet Pass</span>
         </Link>
+
+        {/* Share Live Tracker */}
+        <ShareTrackerButton orderId={order.orderId || order.reference} className="w-full" />
 
         {/* Items to collect */}
         <CollectItemsCard order={order} title="ITEMS TO COLLECT" showTotal />

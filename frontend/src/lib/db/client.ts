@@ -6,6 +6,8 @@ import {
   UpdateCommand,
   ScanCommand,
   QueryCommand,
+  TransactWriteCommand,
+  TransactWriteCommandInput,
 } from '@aws-sdk/lib-dynamodb';
 import { CATALOG_ITEMS } from '@/data/catalog';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
@@ -20,6 +22,9 @@ import {
   BadgeRecord,
   RewardsHistoryItem,
   PaymentStatus,
+  CircuitFlag,
+  CircuitState,
+  LockerBayStatus,
 } from '@/lib/types';
 
 export type CreateOrderInput = Omit<OrderRecord, 'serviceFee' | 'paymentStatus' | 'ttl'> & {
@@ -40,6 +45,9 @@ export type {
   BadgeRecord,
   RewardsHistoryItem,
   PaymentStatus,
+  CircuitFlag,
+  CircuitState,
+  LockerBayStatus,
 };
 
 // In-Memory Fallback State
@@ -50,8 +58,47 @@ const inMemoryStore = {
   tickets: new Map<string, TicketProfile>(),
   ticketHistory: new Map<string, RewardsHistoryItem[]>(),
   awardedOrders: new Set<string>(),
+  circuitState: null as CircuitState | null,
   initialized: false,
 };
+
+// --- Circuit Flag Rules ---
+export const CIRCUIT_FLAG_RULES: Record<CircuitFlag, Omit<CircuitState, 'flag' | 'updatedAt' | 'updatedBy'>> = {
+  GREEN_FLAG: {
+    offPeakDiscountPct: 10,
+    queueMultiplier: 1.0,
+    message: 'Track Session Active \u2014 Off-Peak Pit Stop Savings Open',
+  },
+  SAFETY_CAR: {
+    offPeakDiscountPct: 0,
+    queueMultiplier: 1.6,
+    message: 'Safety Car Deployed \u2014 Surge Concourse Traffic (Off-Peak Paused)',
+  },
+  RED_FLAG: {
+    offPeakDiscountPct: 0,
+    queueMultiplier: 2.0,
+    message: 'Red Flag Halt \u2014 Peak Concourse Surge',
+  },
+  POST_RACE: {
+    offPeakDiscountPct: 15,
+    queueMultiplier: 1.2,
+    message: 'Checkered Flag \u2014 Post-Race Merch Drop Deals Active',
+  },
+};
+
+/**
+ * Error thrown when an atomic order creation fails due to insufficient stock.
+ * Carries available stock per SKU for a 409 response.
+ */
+export class InsufficientStockError extends Error {
+  public readonly availableStock: Record<string, number>;
+
+  constructor(availableStock: Record<string, number>) {
+    super('Insufficient stock for one or more items in the order');
+    this.name = 'InsufficientStockError';
+    this.availableStock = availableStock;
+  }
+}
 
 function initInMemoryDefaults() {
   if (inMemoryStore.initialized) return;
@@ -104,6 +151,36 @@ function initInMemoryDefaults() {
     },
     loyaltyTier: 'Race Fan',
     loyaltyPoints: 650,
+  });
+
+  inMemoryStore.orders.set('GP-2026-X9K2P4', {
+    orderId: 'GP-2026-X9K2P4',
+    pinCode: '8821',
+    customerId: 'TICKET#GP-3820-X',
+    ticketCode: 'GP-3820-X',
+    isGroupOrder: true,
+    seatNote: 'Clark Stand Row H, Seats 14-16',
+    items: [
+      { itemId: 'apex-burger', name: 'APEX BURGER', quantity: 2, unitPrice: 16.5 },
+      { itemId: 'craft-lager', name: 'CRAFT LAGER 4-PACK', quantity: 1, unitPrice: 36.0 },
+      { itemId: 'loaded-fries', name: 'TRACKSIDE LOADED FRIES', quantity: 2, unitPrice: 12.0 },
+    ],
+    subtotal: 93.0,
+    discountAmount: 9.3,
+    discountRate: '10% OFF',
+    serviceFee: 2.09,
+    total: 85.79,
+    loyaltyPointsEarned: 172,
+    pickupStationId: 'M2',
+    pickupStationName: 'PIT STOP M2',
+    counterNumber: '#04',
+    walkTimeMins: 2,
+    qrPayload: 'AGPC1.AGPC-2027-KEY-01.SAMPLE.GP-2026-X9K2P4',
+    signatureBase64: 'sampleSigBase64==',
+    status: 'READY_FOR_PICKUP',
+    paymentStatus: 'PAID',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   });
 
   inMemoryStore.initialized = true;
@@ -205,6 +282,12 @@ export const db = {
 
   // --- CONCESSION ITEMS ---
   async saveItem(item: CatalogItem): Promise<void> {
+    const fullItem: CatalogItem = {
+      ...item,
+      stock: item.stock ?? item.availableUnits ?? 50,
+      availableUnits: item.stock ?? item.availableUnits ?? 50,
+      isLimitedDrop: item.isLimitedDrop ?? false,
+    };
     const client = getDocClient();
     if (client) {
       try {
@@ -212,9 +295,9 @@ export const db = {
           new PutCommand({
             TableName: TABLE_NAME,
             Item: {
-              PK: `ITEM#${item.id}`,
+              PK: `ITEM#${fullItem.id}`,
               SK: 'METADATA',
-              ...item,
+              ...fullItem,
             },
           })
         );
@@ -222,7 +305,7 @@ export const db = {
         console.warn('DynamoDB saveItem error:', err);
       }
     }
-    inMemoryStore.items.set(item.id, item);
+    inMemoryStore.items.set(fullItem.id, fullItem);
   },
 
   async getItems(): Promise<CatalogItem[]> {
@@ -816,5 +899,368 @@ export const db = {
       pointsAwarded: points,
       newTotal: ticket.loyaltyPoints,
     };
+  },
+
+  // --- ATOMIC ORDER CREATION (TransactWriteItems) ---
+  async createOrderAtomic(
+    order: CreateOrderInput,
+    itemQuantities: Record<string, number>
+  ): Promise<OrderRecord> {
+    const ttl = order.ttl || Math.floor(Date.now() / 1000) + 7 * 86400;
+    const paymentStatus = order.paymentStatus || 'PENDING';
+    const serviceFee = order.serviceFee ?? 0;
+
+    const fullOrder: OrderRecord = {
+      ...order,
+      serviceFee,
+      ttl,
+      paymentStatus,
+    };
+
+    const client = getDocClient();
+
+    if (client) {
+      // Build TransactWriteItems: one UpdateItem per SKU + one PutItem for the order
+      const transactItems: NonNullable<TransactWriteCommandInput['TransactItems']> = [];
+
+      for (const [itemId, qty] of Object.entries(itemQuantities)) {
+        transactItems.push({
+          Update: {
+            TableName: TABLE_NAME,
+            Key: { PK: `ITEM#${itemId}`, SK: 'METADATA' },
+            UpdateExpression: 'SET stock = stock - :qty',
+            ConditionExpression: 'attribute_exists(PK) AND stock >= :qty',
+            ExpressionAttributeValues: { ':qty': qty },
+          },
+        });
+      }
+
+      transactItems.push({
+        Put: {
+          TableName: TABLE_NAME,
+          Item: {
+            PK: `ORDER#${fullOrder.orderId}`,
+            SK: 'METADATA',
+            GSI1PK: `TICKET#${fullOrder.ticketCode}`,
+            GSI1SK: `ORDER#${fullOrder.orderId}`,
+            GSI2PK: `PIN#${fullOrder.pinCode}`,
+            GSI2SK: `ORDER#${fullOrder.orderId}`,
+            ...fullOrder,
+          },
+          ConditionExpression: 'attribute_not_exists(PK)',
+        },
+      });
+
+      try {
+        await client.send(new TransactWriteCommand({ TransactItems: transactItems }));
+        inMemoryStore.orders.set(fullOrder.orderId, fullOrder);
+        // Mirror stock decrements locally too
+        for (const [itemId, qty] of Object.entries(itemQuantities)) {
+          const local = inMemoryStore.items.get(itemId);
+          if (local) {
+            local.stock = Math.max(0, (local.stock ?? 0) - qty);
+            local.availableUnits = local.stock;
+            inMemoryStore.items.set(itemId, local);
+          }
+        }
+        return fullOrder;
+      } catch (err: unknown) {
+        // TransactionCanceledException means a condition failed — check stock
+        const isStockFailure =
+          err instanceof Error &&
+          (err.name === 'TransactionCanceledException' ||
+            err.message.includes('ConditionalCheckFailed') ||
+            err.message.includes('TransactionCanceledException'));
+
+        if (isStockFailure) {
+          // Build an availableStock map from current DynamoDB state
+          const availableStock: Record<string, number> = {};
+          for (const itemId of Object.keys(itemQuantities)) {
+            try {
+              const res = await client.send(
+                new GetCommand({
+                  TableName: TABLE_NAME,
+                  Key: { PK: `ITEM#${itemId}`, SK: 'METADATA' },
+                })
+              );
+              availableStock[itemId] = (res.Item?.stock as number) ?? 0;
+            } catch {
+              availableStock[itemId] = 0;
+            }
+          }
+          throw new InsufficientStockError(availableStock);
+        }
+        // For other DynamoDB errors fall back to in-memory creation
+        console.warn('DynamoDB createOrderAtomic error, falling back to in-memory:', err);
+      }
+    }
+
+    // --- In-memory atomic fallback ---
+    // Check all stocks first; throw if any insufficient
+    const insufficientItems: Record<string, number> = {};
+    for (const [itemId, qty] of Object.entries(itemQuantities)) {
+      const local = inMemoryStore.items.get(itemId);
+      const available = local?.stock ?? 0;
+      if (available < qty) {
+        insufficientItems[itemId] = available;
+      }
+    }
+    if (Object.keys(insufficientItems).length > 0) {
+      throw new InsufficientStockError(insufficientItems);
+    }
+
+    // All stocks sufficient — decrement atomically and persist
+    for (const [itemId, qty] of Object.entries(itemQuantities)) {
+      const local = inMemoryStore.items.get(itemId);
+      if (local) {
+        local.stock = Math.max(0, local.stock - qty);
+        local.availableUnits = local.stock;
+        inMemoryStore.items.set(itemId, local);
+      }
+    }
+    inMemoryStore.orders.set(fullOrder.orderId, fullOrder);
+    return fullOrder;
+  },
+
+  // --- INVENTORY RESTOCK ---
+  async restockInventory(
+    mode: 'restock_all' | 'flash_drop',
+    itemId?: string,
+    stock?: number
+  ): Promise<{ updated: string[]; errors: string[] }> {
+    const updated: string[] = [];
+    const errors: string[] = [];
+    const client = getDocClient();
+
+    if (mode === 'restock_all') {
+      const items = Array.from(inMemoryStore.items.values());
+      for (const item of items) {
+        const newStock = stock ?? 50;
+        item.stock = newStock;
+        item.availableUnits = newStock;
+        item.inStock = true;
+        inMemoryStore.items.set(item.id, item);
+        if (client) {
+          try {
+            await client.send(
+              new UpdateCommand({
+                TableName: TABLE_NAME,
+                Key: { PK: `ITEM#${item.id}`, SK: 'METADATA' },
+                UpdateExpression: 'SET stock = :s, availableUnits = :s, inStock = :t',
+                ExpressionAttributeValues: { ':s': newStock, ':t': true },
+              })
+            );
+          } catch (err) {
+            errors.push(`DynamoDB update failed for ${item.id}: ${String(err)}`);
+          }
+        }
+        updated.push(item.id);
+      }
+    } else if (mode === 'flash_drop' && itemId !== undefined) {
+      const newStock = stock ?? 10;
+      const existing = inMemoryStore.items.get(itemId);
+      if (existing) {
+        existing.stock = newStock;
+        existing.availableUnits = newStock;
+        existing.inStock = true;
+        existing.isLimitedDrop = true;
+        inMemoryStore.items.set(itemId, existing);
+      }
+      if (client) {
+        try {
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLE_NAME,
+              Key: { PK: `ITEM#${itemId}`, SK: 'METADATA' },
+              UpdateExpression:
+                'SET stock = :s, availableUnits = :s, inStock = :t, isLimitedDrop = :ld',
+              ExpressionAttributeValues: { ':s': newStock, ':t': true, ':ld': true },
+            })
+          );
+        } catch (err) {
+          errors.push(`DynamoDB update failed for ${itemId}: ${String(err)}`);
+        }
+      }
+      updated.push(itemId);
+    }
+
+    return { updated, errors };
+  },
+
+  // --- CIRCUIT STATE ---
+  async getCircuitState(): Promise<CircuitState> {
+    const client = getDocClient();
+    if (client) {
+      try {
+        const result = await client.send(
+          new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { PK: 'CIRCUIT#STATUS', SK: 'METADATA' },
+          })
+        );
+        if (result.Item) {
+          inMemoryStore.circuitState = result.Item as CircuitState;
+          return result.Item as CircuitState;
+        }
+      } catch (err) {
+        console.warn('DynamoDB getCircuitState error, using fallback:', err);
+      }
+    }
+
+    if (inMemoryStore.circuitState) {
+      return inMemoryStore.circuitState;
+    }
+
+    // Default to GREEN_FLAG
+    const defaultState: CircuitState = {
+      flag: 'GREEN_FLAG',
+      ...CIRCUIT_FLAG_RULES['GREEN_FLAG'],
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'system-default',
+    };
+    inMemoryStore.circuitState = defaultState;
+    return defaultState;
+  },
+
+  async setCircuitState(
+    flag: CircuitFlag,
+    updatedBy = 'vendor',
+    overrideMessage?: string
+  ): Promise<CircuitState> {
+    const rules = CIRCUIT_FLAG_RULES[flag];
+    const state: CircuitState = {
+      flag,
+      offPeakDiscountPct: rules.offPeakDiscountPct,
+      queueMultiplier: rules.queueMultiplier,
+      message: overrideMessage ?? rules.message,
+      updatedAt: new Date().toISOString(),
+      updatedBy,
+    };
+
+    inMemoryStore.circuitState = state;
+
+    const client = getDocClient();
+    if (client) {
+      try {
+        await client.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              PK: 'CIRCUIT#STATUS',
+              SK: 'METADATA',
+              ...state,
+            },
+          })
+        );
+      } catch (err) {
+        console.warn('DynamoDB setCircuitState error:', err);
+      }
+    }
+
+    return state;
+  },
+
+  // --- SMART LOCKER BAY ALLOCATION ---
+  async allocateLockerBay(stationId: string): Promise<string> {
+    // Load all active orders at this station
+    const allOrders = await this.getAllOrders();
+    const activeStatuses = new Set(['RECEIVED', 'PREPARING', 'READY_FOR_PICKUP']);
+    const occupiedBays = new Set<string>();
+
+    for (const order of allOrders) {
+      if (order.pickupStationId === stationId && activeStatuses.has(order.status)) {
+        if (order.counterNumber) {
+          occupiedBays.add(order.counterNumber);
+        }
+      }
+    }
+
+    // Try bays #01..#08
+    for (let i = 1; i <= 8; i++) {
+      const bay = `#${String(i).padStart(2, '0')}`;
+      if (!occupiedBays.has(bay)) {
+        return bay;
+      }
+    }
+
+    // All 8 full — overflow queue bays
+    for (let i = 1; i <= 20; i++) {
+      const bay = `#Q${i}`;
+      if (!occupiedBays.has(bay)) {
+        return bay;
+      }
+    }
+
+    return '#Q99';
+  },
+
+  async getLockerBayStatus(stationId: string): Promise<LockerBayStatus[]> {
+    const allOrders = await this.getAllOrders();
+    const activeStatuses = new Set(['RECEIVED', 'PREPARING', 'READY_FOR_PICKUP']);
+
+    // Build a map bay -> order for active orders at this station
+    const bayMap = new Map<string, OrderRecord>();
+    for (const order of allOrders) {
+      if (order.pickupStationId === stationId && activeStatuses.has(order.status)) {
+        if (order.counterNumber) {
+          bayMap.set(order.counterNumber, order);
+        }
+      }
+    }
+
+    const result: LockerBayStatus[] = [];
+    for (let i = 1; i <= 8; i++) {
+      const bay = `#${String(i).padStart(2, '0')}`;
+      const occupyingOrder = bayMap.get(bay);
+      result.push(
+        occupyingOrder
+          ? {
+              bay,
+              stationId,
+              status: 'OCCUPIED',
+              orderId: occupyingOrder.orderId,
+              pinCode: occupyingOrder.pinCode,
+              orderStatus: occupyingOrder.status,
+              updatedAt: occupyingOrder.updatedAt,
+            }
+          : {
+              bay,
+              stationId,
+              status: 'AVAILABLE',
+            }
+      );
+    }
+    return result;
+  },
+
+  // --- FAN ORDER HISTORY (GSI1) ---
+  async getOrdersByTicket(ticketCode: string): Promise<OrderRecord[]> {
+    const cleanTicket = ticketCode.trim().toUpperCase();
+    const client = getDocClient();
+
+    if (client) {
+      try {
+        const result = await client.send(
+          new QueryCommand({
+            TableName: TABLE_NAME,
+            IndexName: 'GSI1',
+            KeyConditionExpression: 'GSI1PK = :tpk',
+            ExpressionAttributeValues: { ':tpk': `TICKET#${cleanTicket}` },
+            ScanIndexForward: false, // newest first
+          })
+        );
+        if (result.Items && result.Items.length > 0) {
+          return result.Items as OrderRecord[];
+        }
+      } catch (err) {
+        console.warn('GSI1 getOrdersByTicket error, using in-memory fallback:', err);
+      }
+    }
+
+    // In-memory fallback: filter and sort newest-first
+    const local = Array.from(inMemoryStore.orders.values())
+      .filter((o) => o.ticketCode.toUpperCase() === cleanTicket)
+      .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
+    return local;
   },
 };

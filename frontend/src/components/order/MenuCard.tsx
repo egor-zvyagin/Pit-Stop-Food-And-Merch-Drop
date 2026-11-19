@@ -19,6 +19,9 @@ type MenuCardProps = {
     image: string;
     prepTime?: string;
     tag?: string;
+    stock?: number;
+    availableUnits?: number;
+    inStock?: boolean;
   };
 };
 
@@ -27,8 +30,14 @@ export default function MenuCard({ item }: MenuCardProps) {
   const quantity = quantities[item.id] ?? 0;
   const [imgSrc, setImgSrc] = useState(item.image || "/images/burger.jpg");
 
+  // Determine stock status
+  const stock = item.stock ?? item.availableUnits ?? (item.inStock === false ? 0 : 50);
+  const isSoldOut = stock === 0 || item.inStock === false;
+  const isUrgent = !isSoldOut && stock >= 1 && stock <= 5;
+  const canIncrease = !isSoldOut && quantity < stock;
+
   return (
-    <Card className="!p-[14px] overflow-hidden">
+    <Card className={`!p-[14px] overflow-hidden transition-all ${isSoldOut ? "opacity-60 bg-neutral-900/40" : ""}`}>
       <div className="flex gap-3">
         {/* Item Photography with Next.js <Image> & Fallback */}
         <div className="relative h-[80px] w-[80px] shrink-0 overflow-hidden rounded-[12px] bg-neutral-900 border border-[var(--color-border)]">
@@ -38,13 +47,19 @@ export default function MenuCard({ item }: MenuCardProps) {
             fill
             sizes="80px"
             onError={() => setImgSrc("/images/burger.jpg")}
-            className="object-cover transition-transform duration-300 hover:scale-105"
+            className={`object-cover transition-transform duration-300 hover:scale-105 ${
+              isSoldOut ? "grayscale" : ""
+            }`}
           />
-          {item.tag && (
+          {isSoldOut ? (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/80 text-[10px] font-black uppercase tracking-wider text-red-400">
+              SOLD OUT
+            </span>
+          ) : item.tag ? (
             <span className="absolute bottom-1 left-1 rounded bg-black/85 px-1 py-0.5 text-[8px] font-black uppercase tracking-wider text-[var(--color-brand-primary)]">
               {item.tag}
             </span>
-          )}
+          ) : null}
         </div>
 
         {/* Item details */}
@@ -79,12 +94,25 @@ export default function MenuCard({ item }: MenuCardProps) {
               </p>
             )}
 
-            {item.prepTime && (
-              <div className="mt-1 flex items-center gap-1 text-[10px] text-neutral-400">
-                <Icon icon="mdi:clock-outline" width={11} height={11} className="text-amber-400" />
-                <span>{item.prepTime}</span>
-              </div>
-            )}
+            {/* Urgency Badge / Sold Out Pill / Prep Time */}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {isSoldOut && (
+                <span className="inline-flex items-center rounded-md bg-red-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-400 border border-red-500/40">
+                  SOLD OUT
+                </span>
+              )}
+              {isUrgent && (
+                <span className="inline-flex items-center rounded-md bg-amber-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-400 border border-amber-500/40 animate-pulse">
+                  ONLY {stock} LEFT
+                </span>
+              )}
+              {item.prepTime && (
+                <div className="flex items-center gap-1 text-[10px] text-neutral-400">
+                  <Icon icon="mdi:clock-outline" width={11} height={11} className="text-amber-400" />
+                  <span>{item.prepTime}</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Quantity Controls */}
@@ -120,7 +148,8 @@ export default function MenuCard({ item }: MenuCardProps) {
             <Button
               type="button"
               aria-label={`Add ${item.name}`}
-              onClick={() => increaseQuantity(item.id)}
+              onClick={canIncrease ? () => increaseQuantity(item.id) : undefined}
+              disabled={!canIncrease}
               className="
                 !h-[28px]
                 !w-[28px]
@@ -128,6 +157,8 @@ export default function MenuCard({ item }: MenuCardProps) {
                 !p-0
                 !bg-[var(--color-brand-primary)]
                 hover:!bg-red-700
+                disabled:opacity-30
+                disabled:cursor-not-allowed
               "
             >
               <span className="flex h-full w-full items-center justify-center">

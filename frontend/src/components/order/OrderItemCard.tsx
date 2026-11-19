@@ -8,11 +8,14 @@ import Card from "@/components/ui/Card";
 import Typography from "@/components/ui/Typography";
 import Button from "@/components/ui/Buttons";
 import { ORDER_ITEMS } from "@/data/orderConstantData";
+import { CATALOG_ITEMS } from "@/data/catalog";
 
 type OrderItem = (typeof ORDER_ITEMS)[number] & {
   image?: string;
   tag?: string;
   prepTime?: string;
+  stock?: number;
+  availableUnits?: number;
 };
 
 const ITEM_IMAGE_MAP: Record<string, string> = {
@@ -52,8 +55,16 @@ export default function OrderItemCard({
   const [imgSrc, setImgSrc] = useState(initialImage);
   const [hasImageError, setHasImageError] = useState(false);
 
+  // Determine effective stock
+  const catalogMatch = CATALOG_ITEMS.find((c) => c.id === item.id);
+  const stock = item.stock ?? item.availableUnits ?? catalogMatch?.stock ?? catalogMatch?.availableUnits ?? 50;
+
+  const isSoldOut = stock === 0;
+  const isUrgent = stock >= 1 && stock <= 5;
+  const canIncrease = !isSoldOut && quantity < stock;
+
   return (
-    <Card className="!p-[14px]">
+    <Card className={`!p-[14px] transition-all ${isSoldOut ? "opacity-60 bg-neutral-900/40" : ""}`}>
       <div className="flex gap-3">
         {/* Item Photography with Next.js <Image> & Fallback */}
         <div
@@ -88,17 +99,23 @@ export default function OrderItemCard({
                   setHasImageError(true);
                 }
               }}
-              className="object-cover transition-transform duration-300 hover:scale-105"
+              className={`object-cover transition-transform duration-300 hover:scale-105 ${
+                isSoldOut ? "grayscale" : ""
+              }`}
             />
           ) : (
             <Icon icon={item.icon || "mdi:food"} width={38} height={38} />
           )}
 
-          {item.tag && (
+          {isSoldOut ? (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/80 text-[10px] font-black uppercase tracking-wider text-red-400">
+              SOLD OUT
+            </span>
+          ) : item.tag ? (
             <span className="absolute bottom-1 left-1 rounded bg-black/85 px-1 py-0.5 text-[8px] font-black uppercase tracking-wider text-[var(--color-brand-primary)]">
               {item.tag}
             </span>
-          )}
+          ) : null}
         </div>
 
         {/* Item details */}
@@ -126,6 +143,20 @@ export default function OrderItemCard({
             >
               {item.description}
             </Typography>
+          </div>
+
+          {/* Urgency Pill or Sold Out pill */}
+          <div className="mt-1 flex items-center gap-2">
+            {isSoldOut && (
+              <span className="inline-flex items-center rounded-md bg-red-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-400 border border-red-500/40">
+                SOLD OUT
+              </span>
+            )}
+            {isUrgent && (
+              <span className="inline-flex items-center rounded-md bg-amber-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-400 border border-amber-500/40 animate-pulse">
+                ONLY {stock} LEFT
+              </span>
+            )}
           </div>
 
           {/* Quantity Controls */}
@@ -161,7 +192,8 @@ export default function OrderItemCard({
             <Button
               type="button"
               aria-label={`Add ${item.name}`}
-              onClick={onIncrease}
+              onClick={canIncrease ? onIncrease : undefined}
+              disabled={!canIncrease}
               className="
                 !h-[30px]
                 !w-[30px]
@@ -169,6 +201,8 @@ export default function OrderItemCard({
                 !p-0
                 !bg-[var(--color-brand-primary)]
                 hover:!bg-red-700
+                disabled:opacity-30
+                disabled:cursor-not-allowed
               "
             >
               <span className="flex h-full w-full items-center justify-center">

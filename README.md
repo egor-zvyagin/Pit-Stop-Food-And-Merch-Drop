@@ -6,9 +6,14 @@
 [![Next.js 14](https://img.shields.io/badge/Next.js-14.x-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
-[![Vitest](https://img.shields.io/badge/Vitest-54%2F54_Passed-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
+[![Vitest](https://img.shields.io/badge/Vitest-69%2F69_Passed-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
+[![Playwright](https://img.shields.io/badge/Playwright-E2E_Dual--Persona-darkgreen?style=for-the-badge&logo=playwright)](./frontend/e2e)
 [![MapLibre GL v5](https://img.shields.io/badge/MapLibre_GL-v5.x_Zero--Key-3884FF?style=for-the-badge&logo=mapbox)](https://maplibre.org/)
-[![OpenFreeMap](https://img.shields.io/badge/OpenFreeMap-Vector_Tiles-00D67A?style=for-the-badge)](https://openfreemap.org/)
+[![DynamoDB TransactWriteItems](https://img.shields.io/badge/DynamoDB-Atomic_TransactWriteItems-orange?style=for-the-badge&logo=amazon-dynamodb)](./frontend/src/lib/db)
+[![Race Control](https://img.shields.io/badge/Race_Control-Live_Flag_Yield_Pricing-yellow?style=for-the-badge)](./frontend/src/app/api/circuit)
+[![Terraform S3 Backend](https://img.shields.io/badge/Terraform-S3_Remote_State_%26_Locking-844FBA?style=for-the-badge&logo=terraform)](./infra/terraform)
+[![GitHub Actions OIDC](https://img.shields.io/badge/GitHub_Actions-OIDC_Keyless_IAM-black?style=for-the-badge&logo=github-actions)](./infra/terraform/oidc.tf)
+[![CloudWatch Observability](https://img.shields.io/badge/CloudWatch-Free--Tier_Dashboard-red?style=for-the-badge&logo=amazon-cloudwatch)](./infra/terraform/observability.tf)
 [![Ed25519 Cryptography](https://img.shields.io/badge/Ed25519-Offline_Verify_%3C10ms-green?style=for-the-badge&logo=gnupg)](./frontend/src/lib/crypto)
 [![AWS Serverless](https://img.shields.io/badge/AWS-ap--southeast--2-FF9900?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/)
 
@@ -18,56 +23,78 @@
 
 | Service | Target URL | Credentials / Parameters | Description |
 |---|---|---|---|
-| **Fan Web Application** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-3820-X` | Mobile-optimized fan ordering & live digital pass portal |
-| **Vendor Kiosk Terminal** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor) | Staff PIN: `2026` | Trackside concession kiosk with camera scanner & offline verifier |
+| **Fan Web Application** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-3820-X` | Mobile-optimized fan ordering, live tracker, digital pass & history |
+| **Vendor Kiosk Terminal** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor) | Staff PIN: `2026` | Concession terminal with 8-bay lockers, race control & offline outbox |
 | **Public Key Endpoint** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key](https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key) | None (Public / Cached) | Ed25519 public key in SPKI DER Base64 format |
 | **Secondary Demo Ticket** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-9014-P` | Hui Wen Chew (Brabham Grandstand, Turn 4) |
 | **Target AWS Region** | `ap-southeast-2` (Sydney) | Profile: `personal` | 100% Serverless scale-to-zero ($0.00 idle infrastructure cost) |
 
 ---
 
-## Platform Architecture
+## Platform Architecture (v3.0 Production Platform)
 
 ```mermaid
 flowchart TD
     subgraph ClientLayer["Client & Kiosk Layer"]
-        FanPWA["Fan Mobile Web / PWA (Safari / Chrome)"]
-        VendorKiosk["Trackside Concession Kiosk (/vendor)"]
+        FanPWA["Fan Mobile Web / PWA\n(Group Orders, Live Tracker /track/[orderId], History)"]
+        VendorKiosk["Trackside Concession Kiosk (/vendor)\n(PIN 2026, 8-Bay Lockers, Race Control Panel)"]
+        OfflineSyncOutbox["Offline Fulfillment Outbox (syncQueue.ts)\n(Airplane Mode Simulator + Auto-Sync)"]
         OfflineEngine["Isomorphic Ed25519 Verifier (@noble/curves)"]
-        LocalCache["OfflineNonceRegistry (LocalStorage Replay Cache)"]
+        LocalCache["OfflineNonceRegistry (Replay Cache)"]
+        
         VendorKiosk --> OfflineEngine
         OfflineEngine --> LocalCache
+        VendorKiosk --> OfflineSyncOutbox
     end
 
     subgraph AWSCloud["AWS Asia Pacific - Sydney (ap-southeast-2)"]
         CloudFront["AWS Amplify Hosting / CloudFront CDN"]
         
         subgraph ServerlessCompute["Next.js 14 Serverless SSR (Amplify Gen 2)"]
-            CatalogAPI["/api/inventory & /api/stations"]
-            OrderAPI["/api/orders (Authoritative Pricing Engine)"]
-            CryptoAPI["/api/crypto/public-key (SPKI Ed25519)"]
-            PaymentAPI["/api/payment/checkout (Idempotent Payment)"]
+            CatalogAPI["/api/inventory & /api/inventory/restock"]
+            RaceControlAPI["/api/circuit/status (Live Flags: Green, Safety Car, Red, Post-Race)"]
+            StationAPI["/api/stations/capacity & /api/stations/lockers (#01..#08)"]
+            OrderAPI["/api/orders (Zod Schema, Token-Bucket Rate Limiter, TransactWriteItems)"]
+            HistoryAPI["/api/orders/history (GSI1 Fan Queries)"]
+            PublicTrackAPI["/api/orders/[id]/public (Zero-Secret Read-Only Tracking)"]
             StatusAPI["/api/orders/[id]/status (PIN 2026 Guard)"]
-            RewardsAPI["/api/rewards (Points & Badges)"]
+            PaymentAPI["/api/payment/checkout (Idempotent Payment)"]
+            RewardsAPI["/api/rewards (Loyalty Points & Badges)"]
+            CryptoAPI["/api/crypto/public-key (SPKI Ed25519)"]
             PassSigner["Server Ed25519 Pass Signer (crypto.sign)"]
         end
 
         subgraph DatabaseLayer["Amazon DynamoDB (pitstop_data)"]
             SingleTable[("Single-Table Design (PAY_PER_REQUEST)")]
-            GSI1["GSI1: Ticket & Customer Lookup"]
-            GSI2["GSI2: Counter & Pod Order Status"]
-            TTL["7-Day Order Auto-Pruning (TTL)"]
+            ItemRecords["ITEM#<id> (stock, isLimitedDrop)"]
+            OrderRecords["ORDER#<id> (TTL, Express Locker Bay Assignment)"]
+            CircuitRecord["CIRCUIT#STATUS (Dynamic Flag State)"]
+            GSI1["GSI1: Ticket Code History (TICKET#<ticketCode>)"]
+            GSI2["GSI2: Counter & PIN Lookup (PIN#<pinCode>)"]
+            TTL["7-Day Order Auto-Pruning (ttl)"]
+        end
+
+        subgraph DevOpsInfra["Infrastructure as Code & Observability"]
+            S3State["S3 Remote State Bucket\n(pitstop-tfstate-608531435714-ap-southeast-2\nuse_lockfile = true)"]
+            OIDCAuth["GitHub Actions Keyless OIDC\n(token.actions.githubusercontent.com)"]
+            CloudWatchDash["CloudWatch Dashboard\n(pitstop-production-dashboard)"]
+            Alarm["DynamoDB SystemErrors Alarm\n(pitstop-dynamodb-system-errors)"]
         end
     end
 
     FanPWA --> CloudFront
     CloudFront --> ServerlessCompute
     OrderAPI --> PassSigner
-    OrderAPI --> SingleTable
+    OrderAPI -->|"Atomic TransactWriteItems\n(ConditionCheckItem stock >= qty)"| SingleTable
+    HistoryAPI --> SingleTable
+    PublicTrackAPI --> SingleTable
+    RaceControlAPI --> SingleTable
+    StationAPI --> SingleTable
     PaymentAPI --> SingleTable
     StatusAPI --> SingleTable
     RewardsAPI --> SingleTable
     VendorKiosk -.->|"Offline Airplane Mode Scans (< 10ms SLA)"| FanPWA
+    OfflineSyncOutbox -.->|"Auto-Flush on Reconnection"| StatusAPI
 ```
 
 ---
@@ -84,156 +111,136 @@ Pit Stop mitigates these operational bottlenecks through:
    * **Pod M2 (Turn 9 East / Clark):** Calibrated at `(-37.8442, 144.9746)`, serving Waite and Clark Grandstands.
    * **Pod M3 (Turn 4 / Lakeside Drive):** Calibrated at `(-37.8415, 144.9648)`, serving Brabham and Jones Grandstands.
    * **Pod M4 (Turn 14 / GA Village):** Calibrated at `(-37.8534, 144.9718)`, serving General Admission and Village Precinct.
-3. **Dynamic Concession Yield Pricing Engine:** Modeled after EatClub's dynamic yield management, the platform dynamically triggers automated 10% off-peak green flag discounts and 15% promotional vouchers (`PITSTOP15`) during low-queue intervals to flatten crowd surges away from race finishes.
+3. **Dynamic Concession Yield Pricing Engine:** Modeled after EatClub's dynamic yield management, the platform dynamically triggers automated off-peak discounts (`GREEN_FLAG` 10%, `POST_RACE` 15%) and concourse surge pricing (`SAFETY_CAR` 0%, `RED_FLAG` 0%) to flatten crowd surges away from race finishes.
 4. **Sub-10ms Offline Cryptographic Verification:** When mobile networks collapse trackside, customer order passes are validated offline via asymmetric Ed25519 digital signatures in under **10 ms** (typically **0.1 ms - 1.5 ms**) with zero cloud network requests.
 
 ---
 
-## Pit Stop v2.1: Vector Map & Offline Wayfinding Engine
+## Pit Stop v3.0: Production Platform Upgrade
 
-To overcome trackside cellular dropouts and complex topography around Albert Park Lake, Pit Stop v2.1 introduces a high-performance, completely offline-capable vector mapping and pedestrian wayfinding engine:
+Pit Stop v3.0 elevates the ecosystem into a resilient, production-hardened platform:
 
-### 1. Zero-Key MapLibre GL v5 + OpenFreeMap Vector Maps
-- **Zero API Key Dependency:** Replaces commercial cloud tile services with open vector tiles hosted by [OpenFreeMap](https://openfreemap.org), eliminating API key rate limits, usage quotas, and monthly billing surprises.
-- **MapLibre GL v5 Architecture:** Powered by `maplibre-gl@^5.x` and `react-map-gl/maplibre` with custom Next.js 14 transpilation.
-- **Multiple High-Contrast Styles:**
-  * **Positron (Default Light):** High-readability daylight cartography optimized for direct outdoor sun trackside (`https://tiles.openfreemap.org/styles/positron`).
-  * **Liberty (Street Details):** Detailed topographical streets and paths (`https://tiles.openfreemap.org/styles/liberty`).
-  * **Dark (Night / Paddock):** Low-glare night race styling (`https://tiles.openfreemap.org/styles/dark`).
-- **Resilient Offline SVG Fallback:** When WebGL or data networks are completely unavailable, the map automatically degrades to `OfflineCircuitMapFallback.tsx` with light/dark theme contrast adaptation, SVG track outline, calibrated pod pins, and route geometry.
+### 1. Atomic Concurrency & Stock Protection (DynamoDB `TransactWriteItems`)
+- **Race Condition Immunity:** When limited-edition merchandise drops (e.g. `gp-cap-2026`, `ferrari-tee`) are contested by hundreds of fans simultaneously, `db.createOrderAtomic` combines item stock updates with order creation in an ACID `TransactWriteItems` operation.
+- **Stock Condition Checks:** `ConditionExpression: "attribute_exists(PK) AND stock >= :qty"` guarantees overselling is impossible.
+- **409 Conflict Recovery:** If stock runs out during checkout, the server throws `InsufficientStockError` and returns `409 Conflict` with code `INSUFFICIENT_STOCK`. The mobile UI catches this and presents a 1-tap "Adjust Cart to Available Stock" action.
 
-### 2. Offline Dijkstra Pedestrian Routing Around Albert Park Lake
-- **Lake Geometry Awareness:** Albert Park Lake is a major physical barrier spanning ~2 km. Naive straight-line or Euclidean routing misleads fans into attempting impossible walks across water.
-- **16-Node Lakeside Walkway Graph:** Pit Stop builds an in-memory topological graph of official perimeter walking tracks, pedestrian boardwalks, and pedestrian bridges around Albert Park Lake.
-- **Dijkstra Shortest-Path Algorithm:** Computes the optimal lake-skirting pedestrian path between the spectator's current position and any target concession pod (e.g. routing between M3 on Lakeside Drive and M2 on the Clark Chicane traverses the northern lake path via Ross Gregory Dr / Aughtie Dr rather than penetrating the lake).
-- **Realistic Walk Time Modeling:** Calibrated walking velocity at 80 meters per minute (~4.8 km/h), dynamically calculating `walkMinutes = Math.max(1, Math.ceil(distanceMeters / 80))`.
+### 2. Live Race Control Flag Dynamic Pricing
+- **Live Circuit State Engine:** Persisted at `CIRCUIT#STATUS` and exposed via public `GET /api/circuit/status` and vendor-guarded `PATCH /api/circuit/status`.
+- **Dynamic Yield Calibration:**
+  * **`GREEN_FLAG`:** 10% off-peak concession discount, 1.0x queue multiplier (*"Track Session Active — Off-Peak Pit Stop Savings Open"*).
+  * **`SAFETY_CAR`:** 0% off-peak discount (surge paused), 1.6x queue multiplier (*"Safety Car Deployed — Surge Concourse Traffic"*).
+  * **`RED_FLAG`:** 0% off-peak discount, 2.0x queue multiplier (*"Red Flag Halt — Peak Concourse Surge"*).
+  * **`POST_RACE`:** 15% post-race merch drop deals, 1.2x queue multiplier (*"Checkered Flag — Post-Race Merch Drop Deals Active"*).
+- **Live Circuit Banner:** Polled at 10s intervals (pausing when tab is backgrounded) and seamlessly integrated into Home, Order, and Checkout pages.
 
-### 3. Smart GPS Geofencing & Trackside Simulation Engine
-- **Trackside Geofence (`2.5 km` Threshold):**
-  * **`live_trackside` (Distance <= 2.5 km):** Activates live trackside mode with high-accuracy GPS positioning (`navigator.geolocation.watchPosition`), drawing an accuracy circle polygon and locking map interactions to Albert Park.
-  * **`live_offsite` (Distance > 2.5 km):** Detects offsite fans (e.g. Melbourne CBD, interstate, or remote), displaying distance to circuit (e.g. `"You are 4.8 km from Albert Park"`) and providing seamless 1-tap switching to trackside simulation.
-- **Interactive Trackside Simulation:**
-  * **Grandstand Presets:** Instant teleportation to key vantage points: **Clark Grandstand (Turn 9)**, **Fangio Grandstand (Main Straight)**, **Brabham Grandstand (Turn 1)**, and **Albert Park Green (GA Village)**.
-  * **Interactive Map Pin Placement:** Spectators can tap anywhere on the Albert Park map to place a simulated spectator dot.
-  * **Step-by-Step Walk Simulation:** Simulates live pedestrian movement along the Dijkstra route waypoints to test wayfinding in real time.
+### 3. Smart Locker Bay Allocation (`#01`..`#08`)
+- **Express Locker Management:** Automated allocation of express locker slots `#01` through `#08` at each concession pod based on active orders (`RECEIVED`, `PREPARING`, `READY_FOR_PICKUP`), with graceful overflow queue `#Q1`..`#Q20`.
+- **Vendor Locker Grid (`LockerBayGrid.tsx`):** Real-time 8-bay interactive grid on the vendor kiosk indicating Available, Preparing, and Ready orders with quick customer PIN identification.
 
-### 4. Intelligent Total Time Station Ranking (`rankStationsByTotalTime`)
-- Concession queue lines fluctuate rapidly during track sessions. Recommending solely based on physical proximity frequently directs spectators into congested bottlenecks.
-- `rankStationsByTotalTime` combines real pedestrian route walk time with real-time station queue latency:
-  $$\text{Total Time} = \text{Walk Minutes} + \text{Queue Wait Minutes}$$
-- **Bottleneck Avoidance:** A pod 300 meters away with a 2-minute queue (total 6 mins) is automatically recommended over a pod 100 meters away with a 15-minute queue (total 16 mins), badging the optimal choice with **FASTEST TOTAL (WALK + QUEUE)**.
+### 4. Offline Fulfillment Outbox Synchronization (`syncQueue.ts`)
+- **Trackside Airplane Mode Resilience:** Concession staff can operate uninterrupted during catastrophic cellular blackouts.
+- **LocalStorage Outbox (`pitstop_vendor_sync_queue_v1`):** Order lifecycle transitions performed in offline mode are enqueued into an outbox, updating kiosk UI optimistically.
+- **Automatic Reconnection Flush:** Uses browser `online` events to automatically flush the outbox to `PATCH /api/orders/[id]/status` upon network restoration, complete with retry tracking and error toasts.
 
----
+### 5. Fan Order History & Zero-Secret Public Tracking
+- **Fan Order History (`/api/orders/history?ticketCode=...`):** High-speed GSI1 queries sorted newest-first, providing fans with order logs, receipt totals, and 1-tap reordering. Vendor orders endpoint `GET /api/orders` remains strictly protected behind `X-Vendor-Pin: 2026`.
+- **Zero-Secret Public Live Tracker (`/track/[orderId]`):** Shareable link allowing row mates to monitor order preparation. Adheres to a strict zero-secret contract: `qrPayload`, `signatureBase64`, and `pinCode` are strictly stripped and `undefined`.
+- **Group Order Mode:** Single spectator row-collector ordering with optional seat notes (e.g. *"Clark Stand Row H, Seats 14-16"*).
 
-## Offline Cryptographic Protocol Specification
-
-To operate in disconnected environments where 4G/5G connections drop, Pit Stop implements an asymmetric cryptographic validation protocol:
-
-```
-+-----------------------------------------------------------------------------------------+
-|                                    QR Code Payload                                      |
-|                                                                                         |
-|   AGPC1 . <Base64URL(Canonical JSON Payload)> . <Base64URL(64-byte Ed25519 Signature)>  |
-+-----------------------------------------------------------------------------------------+
-```
-
-### 1. Cryptographic Key Management
-- **Algorithm:** Ed25519 (Edwards-curve Digital Signature Algorithm, RFC 8032).
-- **Private Key:** Stored securely in AWS environment variables (`ED25519_PRIVATE_KEY_BASE64`) on the Next.js server. Never exposed to browser or client code.
-- **Public Key:** Exposed via `GET /api/crypto/public-key` in standard SPKI DER format (`MCowBQYDK2VwAyEAXTZ23IPCQi9z2B0U4g6wNDVqanRuS3goJ9ULNdegGMY=`). Vendor terminals cache this key in `localStorage` upon shift initialization.
-
-### 2. Deterministic Canonical Payload
-Before signing, payload keys are deterministically sorted to prevent signature invalidation across JSON serializers:
-```typescript
-interface OrderPassPayload {
-  orderId: string;          // e.g. "GP-2026-X9K2P4"
-  customerId: string;       // e.g. "TICKET-GP-3820-X"
-  targetStationId: string;  // e.g. "M2"
-  issuedAt: number;         // Epoch timestamp (seconds)
-  expiresAt: number;        // Epoch timestamp (seconds)
-  items: OrderItem[];       // SKU, item name, quantity, unit price in cents
-  nonce: string;            // 128-bit cryptographically secure random nonce
-}
-```
-
-### 3. Verification SLA & Offline Execution
-- Powered by pure JavaScript `@noble/curves/ed25519` with zero Node.js dependencies, bundling cleanly into browser and PWA service workers.
-- **Single Verification Latency:** Typical **0.1 ms - 1.5 ms** on modern mobile hardware (SLA target: `< 10.0 ms`).
-- **Tamper Detection:** Modifying order items, quantities, or pickup stations invalidates the Ed25519 signature mathematically.
-- **Expiration Defense:** Passes are rejected automatically once `expiresAt` is exceeded.
-
-### 4. Anti-Replay Defense (`OfflineNonceRegistry`)
-To prevent ticket duplication or double-redemption attacks in complete airplane mode:
-1. Vendor terminals maintain a local SQLite / `localStorage` index of redeemed cryptographic nonces.
-2. When a QR code is scanned, `OfflineNonceRegistry.registerNonce(nonce, expiresAt)` evaluates the token.
-3. First scan succeeds with `{ success: true, valid: true }`.
-4. Subsequent scans of the identical QR code immediately fail with `{ success: false, valid: false, reason: "REPLAY_DETECTED" }`.
-5. Nonces past their `expiresAt` timestamp are automatically pruned to prevent unbounded storage growth.
+### 6. Production Infrastructure as Code (Terraform & AWS)
+- **S3 Remote State with Native Lockfiles:** Migrated to S3 bucket `pitstop-tfstate-608531435714-ap-southeast-2` using Terraform S3 backend with `use_lockfile = true` for cost-free, distributed state locking.
+- **GitHub Actions Keyless OIDC Federation:** Provisioned IAM OpenID Connect provider for `token.actions.githubusercontent.com` and least-privilege deployment role `pitstop-github-actions-terraform-role`, eliminating long-lived AWS access keys.
+- **CloudWatch Observability Dashboard & Alarms:** Provisioned free-tier dashboard `pitstop-production-dashboard` visualizing DynamoDB consumed RCU/WCU, latency percentiles, and automated alarm `pitstop-dynamodb-system-errors`.
 
 ---
 
 ## Test Suite & Verification Results
 
-Pit Stop includes full automated test coverage across cryptographic signing, authoritative pricing rules, serverless API contracts, and an end-to-end smoke verification runner.
+Pit Stop v3.0 features extensive automated testing across unit, integration, crypto, concurrency, security, and Playwright end-to-end browser automation.
 
 ```
-✓ src/__tests__/geo.test.ts      (24 tests)     7ms
-✓ src/__tests__/crypto.test.ts   (11 tests)   106ms
-✓ src/__tests__/pricing.test.ts  (10 tests)     6ms
-✓ src/__tests__/api.test.ts      (9 tests)    611ms
+✓ src/lib/offline/__tests__/syncQueue.test.ts  (6 tests)     6ms
+✓ src/__tests__/geo.test.ts                    (24 tests)    7ms
+✓ src/__tests__/crypto.test.ts                 (11 tests)  109ms
+✓ src/__tests__/pricing.test.ts                (10 tests)    6ms
+✓ src/__tests__/api.test.ts                    (9 tests)   530ms
+✓ src/__tests__/v3Features.test.ts             (9 tests)  1437ms
 
-Test Files  4 passed (4)
-     Tests  54 passed (54)
-  Duration  815ms
+Test Files  6 passed (6)
+     Tests  69 passed (69)
+  Duration  1.71s
 ```
 
 ### Suite Breakdown
 
-1. **`geo.test.ts` (24 Tests):**
-   - Haversine distance calculations benchmarked against known Albert Park landmark surveys (Pit Straight to Turn 1 Apex ~790m, Lake length North to South shore ~1473m, Albert Park Center to Melbourne Town Hall / CBD ~3490m, Albert Park to Sydney Opera House ~716.4 km within 2% tolerance).
-   - High-accuracy GPS geofence classification (`2.5 km` threshold): Albert Park trackside points (`true`), Melbourne CBD and North Melbourne (`false`), Sydney Opera House (`false`).
-   - 16-node undirected walkway graph wrapping the Albert Park Lake perimeter.
-   - Dijkstra pedestrian route navigation: tests cross-lake navigation (M3 to M2, M4 to M3), asserting coordinates count >= 3, route distance > straight-line Haversine, and complete lake water intrusion avoidance.
-   - GPS accuracy circle generator: produces valid GeoJSON `Feature<Polygon>` with closed coordinate rings (first point === last point).
-   - Total time pod ranking (`rankStationsByTotalTime`): verifies that a station further away with a 2-min queue beats an immediate adjacent station with a 15-min heavy traffic queue, flagging `isRecommendedFastest: true`.
-   - Grand Prix 5.278 km circuit GeoJSON line geometry, bounding boxes, and calibrated pod coordinates synchronization.
+1. **`v3Features.test.ts` (9 Tests) — Concurrency, Security, Lockers & Offline Sync:**
+   - **Atomic Merch Drop Concurrency:** Simulates two concurrent `POST /api/orders` racing for a limited merch item (`stock: 1`). Asserts exactly one returns `201 Created` and one returns `409 Conflict` with code `INSUFFICIENT_STOCK`, leaving final stock `0`.
+   - **Race Control Flag Pricing:** Toggles `CircuitState` from `GREEN_FLAG` (10% off) to `SAFETY_CAR` (0% off) via API and asserts order pricing dynamically updates.
+   - **Smart Locker Allocation:** Verifies concurrent orders at the same pod station allocate distinct, collision-free bay numbers `#01`..`#08`.
+   - **Fan Order History vs Vendor Guard:** Confirms `GET /api/orders/history?ticketCode=...` returns customer orders, while `GET /api/orders` strictly requires `X-Vendor-Pin` (rejecting unauthenticated requests with 401).
+   - **Zero-Secret Public Tracker Contract:** Verifies `GET /api/orders/[id]/public` returns status and order details while asserting `qrPayload`, `signatureBase64`, and `pinCode` are strictly `undefined`.
+   - **Offline Sync Outbox:** Enqueues status actions into `syncQueue.ts` and asserts flushing against the serverless status route resolves cleanly with 0 failures.
+   - **Zod Schema Validation:** Verifies malformed JSON, empty items, and negative quantities return 400 with descriptive issue details.
 
-2. **`crypto.test.ts` (11 Tests):**
-   - Ed25519 asymmetric keypair initialization & DER encoding.
-   - Server-side cryptographic signing and QR payload generation (`AGPC1.*`).
-   - Isomorphic client-side verification under `< 10ms` SLA target.
-   - QR string parser and verification (`verifyQrPayload`).
-   - Tampered payload detection (modified items, altered quantities).
-   - Forged and corrupted signature rejection.
-   - Expired pass rejection via epoch timestamps.
-   - Concession pod station mismatch rejection.
-   - 100-iteration continuous load benchmark (`avg: 0.89ms, peak: 1.7ms`).
-   - `OfflineNonceRegistry` initial scan acceptance & replay duplicate rejection (`REPLAY_DETECTED`).
-   - Nonce expiration window pruning.
+2. **`syncQueue.test.ts` (6 Tests):**
+   - Outbox queue storage persistence in localStorage.
+   - Idempotent action deduplication and attempt tracking.
+   - Dequeuing on 200 OK and 409 Conflict (order already completed).
+   - Online event listener lifecycle.
 
-3. **`pricing.test.ts` (10 Tests):**
-   - Subtotal calculation against canonical catalog prices.
-   - 10% dynamic yield Green Flag discount calculation.
-   - Safety car bypass (0% dynamic discount during neutralizations).
-   - 15% promotional voucher (`PITSTOP15`) overriding default discount.
-   - Flat voucher discounts (`SAVE5`, `SAVE10`).
-   - Free item vouchers (`FREE-BURGER`, `FREE-FRIES`).
-   - Non-inversion discount guardrails (discounts cannot exceed subtotal).
-   - 2.5% service fee IEEE 754 precision rounding.
-   - Loyalty point calculation (2 points per $1 spent).
-   - **Price-tampering resistance:** client-altered `unitPrice` fields in cart payloads are completely overridden by authoritative catalog prices.
+3. **`geo.test.ts` (24 Tests):**
+   - Haversine distance calculations benchmarked against known Albert Park surveys.
+   - High-accuracy GPS geofence classification (`2.5 km` threshold).
+   - 16-node undirected walkway graph wrapping Albert Park Lake.
+   - Dijkstra pedestrian route navigation skirting lake shores.
+   - Total time pod ranking (`rankStationsByTotalTime`).
 
-4. **`api.test.ts` (9 Tests):**
-   - `GET /api/crypto/public-key`: 200 OK with SPKI DER Base64 public key.
-   - `POST /api/orders`: Generates `GP-2026-*` order ID, 4-digit pickup PIN, and signed Ed25519 pass.
-   - `POST /api/orders`: 400 Bad Request on empty or invalid cart items.
-   - `POST /api/payment/checkout`: Authorizes payment and returns identical cached response on duplicate idempotency keys.
-   - `PATCH /api/orders/[id]/status`: Rejects unauthenticated requests without `X-Vendor-Pin` (401 Unauthorized).
-   - `PATCH /api/orders/[id]/status`: Accepts valid PIN (`2026`), transitions status to `COMPLETED`, and auto-awards fan loyalty points.
-   - `GET /api/rewards`: Returns ticket points, tier status, badges, vouchers, and transaction history.
-   - `GET /api/inventory`: Returns real-time stock levels, pricing, and photo assets.
-   - `GET /api/stations/capacity`: Returns queue status across pods M1-M4, supporting pod ID filtering and 404s.
-   - `POST /api/auth/verify-ticket`: Validates Grand Prix ticket barcode codes (`GP-3820-X`).
+4. **`crypto.test.ts` (11 Tests):**
+   - Server-side Ed25519 cryptographic signing (`AGPC1.*`).
+   - Sub-10ms offline verification SLA via `@noble/curves`.
+   - Nonce replay attack mitigation (`REPLAY_DETECTED`).
+   - Tampered payload and forged signature rejection.
+
+5. **`pricing.test.ts` (10 Tests):**
+   - Authoritative catalog pricing engine.
+   - Dynamic yield green flag vs safety car surge rules.
+   - Promotional code `PITSTOP15` and voucher discounts.
+   - Service fee rounding and loyalty points accrual.
+
+6. **`api.test.ts` (9 Tests):**
+   - Serverless route handler contracts for orders, payment, public keys, inventory, stations, and rewards.
+
+---
+
+### Playwright Dual-Persona Browser E2E Suite
+
+Playwright tests simulate complete customer and vendor journeys across realistic device viewports:
+
+```bash
+cd frontend
+npm run test:e2e
+```
+
+- **Mobile Fan Flow (`Pixel 7` Viewport):**
+  1. Loads `/` without severe console errors.
+  2. Toggles Trackside Simulation and selects a Grandstand preset.
+  3. Navigates to `/order`, confirms stock pills and photographic assets render.
+  4. Adds items to cart, proceeds to `/checkout`.
+  5. Toggles Group Order and fills in seat notes.
+  6. Places order, verifies redirect to `/collect` or `/pass` with Ed25519 pass.
+  7. Clicks Share Live Tracker, navigates to `/track/[orderId]`, asserts status stepper renders and zero QR/PIN is exposed.
+  8. Checks Order History tab on `/collect` and verifies past orders render.
+
+- **Tablet Kiosk Vendor Flow (`1280x800` Viewport):**
+  1. Navigates to `/vendor`.
+  2. Unlocks with Staff PIN `2026`.
+  3. Asserts 8-bay Locker Grid and Telemetry Bar render.
+  4. Toggles Race Control flag.
+  5. Enables Airplane Mode Simulator, marks order complete, asserts `"Pending Cloud Sync"` count increases.
+  6. Toggles Airplane Mode OFF, asserts auto-sync fires and queue clears.
+
+---
 
 ### End-to-End Live Smoke Runner
 
@@ -246,44 +253,63 @@ npm run test:live
 Output:
 ```
 ======================================================
-🏎️  PIT STOP v2: END-TO-END SMOKE VERIFICATION SUITE
+🏎️  PIT STOP v3.0: END-TO-END SMOKE VERIFICATION SUITE
 ======================================================
 
 ⚡ Target mode: In-Process Next.js Serverless Route Dispatch (Standalone)
-▶ STEP 1: Fetching Ed25519 Public Key from /api/crypto/public-key...
-  ✓ Public Key fetched: AGPC-2027-KEY-01 (Ed25519)
-  ✓ Public Key DER Base64: MCowBQYDK2VwAyEAXTZ23IPC...
+▶ STEP 1: Checking Live Race Control via GET /api/circuit/status...
+  ✓ Circuit Flag: GREEN_FLAG (10% off-peak discount)
+  ✓ Race Message: "Track Session Active — Off-Peak Pit Stop Savings Open"
 
-▶ STEP 2: Creating Order via POST /api/orders...
-  ✓ Order Created: GP-2026-9VY466
-  ✓ Pickup Station: PIT STOP M2 (M2)
-  ✓ 4-Digit PIN Code: 3428
-  ✓ Subtotal: $69.00, Discount: -$10.35 (15% OFF (PITSTOP15 Promotional))
-  ✓ Total Charged: $60.12 (Service Fee: $1.47)
-  ✓ Points to Earn: +120 pts
+▶ STEP 2: Fetching Server Public Key via GET /api/crypto/public-key...
+  ✓ Algorithm: Ed25519 (spki-der-base64)
+  ✓ Key ID: AGPC-2027-KEY-01
+  ✓ SPKI Base64: MCowBQYDK2VwAyEAXTZ23IPCQi9z2B0U...
+  ✓ Public key loaded into local passVerifier engine
 
-▶ STEP 3: Validating Cryptographic Ed25519 Digital Pass Offline...
-  ✓ Offline Signature Validated in 1.413 ms (Target < 10.0 ms SLA)
-  ✓ Order ID decoded from QR: GP-2026-9VY466
+▶ STEP 3: Submitting Order via POST /api/orders (PITSTOP15 Promo Applied)...
+  ✓ Order Created: GP-2026-D8C8MQ
+  ✓ Pickup Pod: Pit Stop M2 (Turn 9 East) (M2)
+  ✓ Subtotal: $69.00 | Discount: -$10.35 (15% OFF)
+  ✓ Service Fee: $1.47 | Final Total: $60.12
+  ✓ Express Locker PIN: 7412
+  ✓ Cryptographic QR: AGPC1.eyJvcmRlcklkIjoiR1AtMjAyNi1EOEM4TVEi...
+
+▶ STEP 4: Offline Verification of Pass via @noble/curves (<10ms SLA)...
+  ✓ Offline Signature Validated in 0.942 ms (Target < 10.0 ms SLA)
+  ✓ Order ID decoded from QR: GP-2026-D8C8MQ
   ✓ Initial barcode scan registered in OfflineNonceRegistry
   ✓ Replay attack detected: duplicate scan rejected with REPLAY_DETECTED
 
-▶ STEP 4: Authorizing Payment via POST /api/payment/checkout...
-  ✓ Payment Authorized: TxID TXN-GP-1795042838791-6657 (apple_pay)
+▶ STEP 5: Auditing Public Read-Only Tracker via GET /api/orders/[id]/public...
+  ✓ Public Tracker Order ID: GP-2026-D8C8MQ
+  ✓ Public Status: RECEIVED
+  ✓ Designated Locker Bay: #02
+  ✓ Zero-Secret Contract Verified: qrPayload, pinCode & signatureBase64 are strictly UNDEFINED
+
+▶ STEP 6: Querying Fan Order History via GET /api/orders/history?ticketCode=GP-3820-X...
+  ✓ Found past orders for ticket GP-3820-X
+  ✓ Verified order GP-2026-D8C8MQ listed in fan history (status: RECEIVED)
+
+▶ STEP 7: Authorizing Payment via POST /api/payment/checkout...
+  ✓ Payment Authorized: TxID smoke-tx-1795042838791 (apple_pay)
   ✓ Payment idempotency verified: identical transaction returned for duplicate submission
 
-▶ STEP 5: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...
+▶ STEP 8: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...
   ✓ Security check: unauthorized PIN rejected with 401
   ✓ Vendor marked order COMPLETED (Staff PIN: 2026 verified)
 
-▶ STEP 6: Verifying Fan Rewards Balance & Badges via GET /api/rewards...
+▶ STEP 9: Verifying Fan Rewards Balance & Badges via GET /api/rewards...
   ✓ Holder Name: Egor Zvyagin (GP-3820-X)
   ✓ Loyalty Balance: 1970 pts (Tier: Pit Lane Insider)
   ✓ Badges Count: 4 badges (3 unlocked)
   ✓ Active Vouchers: 5 vouchers
 
+▶ STEP 10: Executing Clean Teardown...
+  ✓ Nonce registry flushed cleanly
+
 ======================================================
-🏁 ALL 6 SMOKE TESTS PASSED PERFECTLY IN 16 ms!
+🏁 ALL 10 SMOKE TESTS PASSED PERFECTLY IN 885 ms!
 ======================================================
 ```
 
@@ -330,10 +356,13 @@ Open [http://localhost:3000](http://localhost:3000) for the Fan Web App or [http
 
 ### 6. Run Test Suites
 ```bash
-# Run all Vitest unit and integration suites
+# Run all Vitest unit and concurrency suites (69 tests)
 npm test
 
-# Run end-to-end smoke verification
+# Run Playwright browser E2E test suite (Mobile & Tablet Kiosk)
+npm run test:e2e
+
+# Run end-to-end 10-step smoke verification
 npm run test:live
 
 # Run linter
@@ -351,6 +380,10 @@ The platform operates on a **100% Scale-to-Zero Serverless Architecture** in AWS
 
 - **AWS Amplify Gen 2:** Global CloudFront edge distribution + serverless SSR compute.
 - **Amazon DynamoDB Single-Table (`pitstop_data`):** On-demand billing (`PAY_PER_REQUEST`). Zero provisioned read/write capacity units (`RCU = 0, WCU = 0`). Under 25 GB AWS Free Tier limit, yielding **$0.00 idle cost**.
+- **Atomic Concurrency Protection:** `TransactWriteItems` with `ConditionCheckItem` prevents overselling during flash merchandise drops without costly distributed locking services.
+- **Terraform Remote S3 Backend:** State stored in `pitstop-tfstate-608531435714-ap-southeast-2` with `use_lockfile = true` for cost-free, DynamoDB-less native state locking.
+- **GitHub Actions Keyless OIDC:** Secure role assumption via `token.actions.githubusercontent.com` eliminates long-lived secret storage.
+- **CloudWatch Free-Tier Dashboard:** Dashboard `pitstop-production-dashboard` and alarm `pitstop-dynamodb-system-errors` operate within the AWS CloudWatch Free Tier (up to 3 free dashboards and 10 free alarms).
 - **Automated Order Expiration (TTL):** Order records carry a 7-day TTL epoch attribute, automatically pruned by DynamoDB with zero consumed write capacity.
 - **AWS Budget Protection:** Configured with an automated $5.00/month threshold alert.
 

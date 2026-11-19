@@ -15,6 +15,7 @@ import ReviewOrderButton from "./ReviewOrderButton";
 import MenuCard from "./MenuCard";
 import FoodMenu from "./FoodMenu";
 import MerchDrop from "./MerchDrop";
+import CircuitFlagBanner from "@/components/home/CircuitFlagBanner";
 
 type Category = (typeof CATEGORIES)[number]["id"];
 
@@ -118,6 +119,9 @@ export default function OrderContent() {
 
           {/* Catalog Items */}
           <section className="px-4 pt-3">
+            <div className="mb-3">
+              <CircuitFlagBanner compact />
+            </div>
             {category === "food" && <FoodMenu />}
             {category === "merch" && <MerchDrop />}
             {category === "all" && (

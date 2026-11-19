@@ -11,6 +11,7 @@ resource "aws_iam_policy" "dynamodb_access" {
         Action = [
           "dynamodb:BatchGetItem",
           "dynamodb:BatchWriteItem",
+          "dynamodb:ConditionCheckItem",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",

@@ -18,6 +18,8 @@ export interface CatalogItem {
   tag?: string;
   inStock: boolean;
   availableUnits: number;
+  stock: number;
+  isLimitedDrop?: boolean;
   description?: string;
   isAlcoholic?: boolean;
 }
@@ -73,6 +75,7 @@ export interface OrderRecord {
   customerId: string;
   ticketCode: string;
   isGroupOrder: boolean;
+  seatNote?: string;
   items: OrderItemRecord[];
   subtotal: number;
   discountAmount: number;
@@ -156,3 +159,71 @@ export interface PublicKeyResponse {
   algorithm: 'Ed25519';
   format: 'spki-der-base64';
 }
+
+/**
+ * Pit Stop v3: Live Race Control & Dynamic Circuit States
+ */
+export type CircuitFlag = 'GREEN_FLAG' | 'SAFETY_CAR' | 'RED_FLAG' | 'POST_RACE';
+
+export interface CircuitState {
+  flag: CircuitFlag;
+  offPeakDiscountPct: number;
+  queueMultiplier: number;
+  message: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+/**
+ * Pit Stop v3: Smart Locker Bay Status
+ */
+export interface LockerBayStatus {
+  bay: string; // e.g. "#01" .. "#08"
+  stationId: string; // e.g. "M1" .. "M4"
+  status: 'AVAILABLE' | 'OCCUPIED';
+  orderId?: string;
+  pinCode?: string;
+  orderStatus?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Pit Stop v3: Group Order Info
+ */
+export interface GroupOrderInfo {
+  isGroupOrder: boolean;
+  seatNote?: string;
+  collectorName?: string;
+}
+
+/**
+ * Pit Stop v3: Public Read-Only Order Tracking (Strict Zero-Secret Contract)
+ * Explicitly DOES NOT contain qrPayload, signatureBase64, or pinCode
+ */
+export interface PublicOrderTracking {
+  orderId: string;
+  status: string;
+  pickupStationId: string;
+  pickupStationName: string;
+  counterNumber: string;
+  walkTimeMins: number;
+  isGroupOrder: boolean;
+  seatNote?: string;
+  items: Array<{ name: string; quantity: number }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Pit Stop v3: Offline Fulfillment Outbox Synchronization Action
+ */
+export interface OfflineSyncAction {
+  id: string;
+  orderId: string;
+  status: 'PREPARING' | 'READY_FOR_PICKUP' | 'COMPLETED';
+  nonce?: string;
+  queuedAt: string;
+  attempts: number;
+  lastError?: string;
+}
+

@@ -1,4 +1,4 @@
-import { CatalogItem, PricingBreakdown } from '@/lib/types';
+import { CatalogItem, PricingBreakdown, CircuitState } from '@/lib/types';
 import { CATALOG_ITEMS, CATALOG_BY_ID } from '@/data/catalog';
 import { CHECKOUT_VOUCHERS } from '@/data/checkoutConstantData';
 
@@ -23,9 +23,12 @@ export function round2(num: number): number {
  *
  * Implements trackside concession pricing rules:
  * - Authoritative item prices fetched strictly from canonical catalog (never trust client prices).
- * - Dynamic yield: 10% default Green Flag discount ($0 during safety car).
+ * - Dynamic yield:
+ *   * GREEN_FLAG: 10% off-peak discount
+ *   * SAFETY_CAR / RED_FLAG: 0% off-peak discount (surge)
+ *   * POST_RACE: 15% post-race merch drop discount
  * - Promo codes:
- *   * PITSTOP15: gives 15% discount (replaces 10% default, never inverts).
+ *   * PITSTOP15: gives 15% discount (replaces default yield, never inverts).
  *   * Flat vouchers ($5, $10 off, e.g. SAVE5, SAVE10, GP-SAVE05).
  *   * Free item vouchers (e.g. free item reduces subtotal by item price).
  * - Service fee: 2.5% of discounted subtotal, rounded to 2 decimal places.
@@ -34,7 +37,7 @@ export function round2(num: number): number {
 export function calculateOrderPricing(
   items: OrderItemInput[],
   promoCode?: string,
-  circuitStatus: string = 'GREEN_FLAG',
+  circuitStatus: string | CircuitState = 'GREEN_FLAG',
   catalogItems: CatalogItem[] = CATALOG_ITEMS
 ): PricingBreakdown {
   if (!items || items.length === 0) {
@@ -78,19 +81,42 @@ export function calculateOrderPricing(
     };
   }
 
-  // 2. Dynamic Yield: 10% default Green Flag discount ($0 during safety car)
-  const isSafetyCar = circuitStatus.toUpperCase().includes('SAFETY');
-  let dynamicYieldDiscount = 0;
+  // 2. Dynamic Yield based on Live Circuit State
+  let discountPct = 10;
+  let flagName = 'GREEN_FLAG';
 
-  if (!isSafetyCar) {
-    dynamicYieldDiscount = round2(subtotal * 0.10);
+  if (typeof circuitStatus === 'object' && circuitStatus !== null && 'offPeakDiscountPct' in circuitStatus) {
+    discountPct = circuitStatus.offPeakDiscountPct;
+    flagName = circuitStatus.flag;
+  } else if (typeof circuitStatus === 'string') {
+    const statusUpper = circuitStatus.toUpperCase();
+    if (statusUpper.includes('POST_RACE') || statusUpper.includes('POST')) {
+      discountPct = 15;
+      flagName = 'POST_RACE';
+    } else if (statusUpper.includes('SAFETY')) {
+      discountPct = 0;
+      flagName = 'SAFETY_CAR';
+    } else if (statusUpper.includes('RED')) {
+      discountPct = 0;
+      flagName = 'RED_FLAG';
+    } else {
+      discountPct = 10;
+      flagName = 'GREEN_FLAG';
+    }
   }
+
+  let dynamicYieldDiscount = round2(subtotal * (discountPct / 100));
 
   // 3. Promo Codes & Vouchers
   let voucherDiscount = 0;
-  let effectiveRateStr = isSafetyCar
-    ? '0% (Safety Car Active)'
-    : '10% OFF (Green Flag Dynamic Yield)';
+  let effectiveRateStr =
+    flagName === 'SAFETY_CAR'
+      ? '0% (Safety Car Active)'
+      : flagName === 'RED_FLAG'
+      ? '0% (Red Flag Surge Active)'
+      : flagName === 'POST_RACE'
+      ? '15% OFF (Post-Race Merch Drop Deals Active)'
+      : '10% OFF (Green Flag Dynamic Yield)';
   let freeItemApplied:
     | { itemId: string; name: string; originalPrice: number }
     | undefined = undefined;
