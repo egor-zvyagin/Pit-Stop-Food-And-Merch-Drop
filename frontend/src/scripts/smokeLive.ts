@@ -30,6 +30,7 @@ import { GET as getRewardsRoute } from '../app/api/rewards/route';
 import { GET as getCircuitStatusRoute } from '../app/api/circuit/status/route';
 import { GET as getOrderHistoryRoute } from '../app/api/orders/history/route';
 import { GET as getOrderPublicRoute } from '../app/api/orders/[id]/public/route';
+import { POST as restockRoute } from '../app/api/inventory/restock/route';
 
 interface ApiResponse<T = Record<string, unknown>> {
   status: number;
@@ -101,6 +102,7 @@ interface SmokeClient {
       vouchers: unknown[];
     };
   }>>;
+  restockAll: () => Promise<ApiResponse<{ success: boolean }>>;
 }
 
 async function initClient(): Promise<SmokeClient> {
@@ -184,6 +186,17 @@ function createHttpClient(baseUrl: string): SmokeClient {
       const res = await fetch(`${baseUrl}/api/rewards?ticketCode=${encodeURIComponent(ticketCode)}`);
       return { status: res.status, data: await res.json() };
     },
+    async restockAll() {
+      const res = await fetch(`${baseUrl}/api/inventory/restock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Vendor-Pin': '2026',
+        },
+        body: JSON.stringify({ mode: 'restock_all' }),
+      });
+      return { status: res.status, data: await res.json() };
+    },
   };
 }
 
@@ -244,6 +257,18 @@ function createInProcessClient(): SmokeClient {
     async getRewards(ticketCode) {
       const req = new Request(`http://localhost:3000/api/rewards?ticketCode=${encodeURIComponent(ticketCode)}`);
       const res = await getRewardsRoute(req);
+      return { status: res.status, data: await res.json() };
+    },
+    async restockAll() {
+      const req = new Request('http://localhost:3000/api/inventory/restock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Vendor-Pin': '2026',
+        },
+        body: JSON.stringify({ mode: 'restock_all' }),
+      });
+      const res = await restockRoute(req);
       return { status: res.status, data: await res.json() };
     },
   };
@@ -455,6 +480,16 @@ async function runSmoke() {
   console.log('\n▶ STEP 10: Executing Clean Teardown...');
   OfflineNonceRegistry.clear();
   console.log('  ✓ Nonce registry flushed cleanly');
+
+  // Restock inventory to leave DB in clean state
+  try {
+    const restockRes = await client.restockAll();
+    if (restockRes.status === 200 && (restockRes.data as { success?: boolean })?.success) {
+      console.log('  ✓ Inventory restocked to full baseline levels');
+    }
+  } catch (err: unknown) {
+    console.warn('  ⚠️ Note: Restock teardown failed (non-fatal):', err instanceof Error ? err.message : err);
+  }
 
   const elapsedMs = Date.now() - startTime;
   console.log('\n======================================================');

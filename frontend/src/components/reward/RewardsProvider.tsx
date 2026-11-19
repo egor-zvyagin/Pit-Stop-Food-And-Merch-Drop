@@ -13,6 +13,7 @@ import { MOCK_REWARDS_PROFILE } from "@/data/rewardsConstantData";
 
 import type {
     RedeemReward,
+    RewardBadgeId,
     RewardHistoryEntry,
     RewardsProfile,
 } from "@/data/rewardsConstantData";
@@ -20,6 +21,7 @@ import type {
 import { CHECKOUT_VOUCHERS } from "@/data/checkoutConstantData";
 import { DEMO_STARTING_REWARD_POINTS } from "@/data/demoConstantData";
 import { useDemoMode } from "../DemoProvider";
+import { useOrder } from "@/components/order/OrderProvider";
 
 type RewardsContextType = {
     profile: RewardsProfile;
@@ -81,6 +83,7 @@ export default function RewardsProvider({
     children,
 }: RewardsProviderProps) {
     const { demoMode } = useDemoMode();
+    const { activeTicketCode } = useOrder();
 
     const [profile, setProfile] = useState<RewardsProfile>(
         MOCK_REWARDS_PROFILE
@@ -88,15 +91,61 @@ export default function RewardsProvider({
 
     // Stops Demo Mode from repeatedly resetting rewards back to 1000.
     const demoRewardsSeeded = useRef(false);
+    const liveHydrated = useRef(false);
 
     // Stops the same completed order from awarding points twice
     const awardedOrderReferences =
         useRef<Set<string>>(new Set());
 
-    // Gives Demo Mode a useful starting rewards balance
+    // Live hydration from GET /api/rewards?ticketCode=${ticketCode}
+    useEffect(() => {
+        let isMounted = true;
+        const code = activeTicketCode || "GP-3820-X";
+
+        async function fetchLiveRewards() {
+            try {
+                const res = await fetch(`/api/rewards?ticketCode=${encodeURIComponent(code)}`);
+                if (!res.ok) return;
+                const json = await res.json();
+                if (isMounted && json.success && json.data) {
+                    const data = json.data;
+                    liveHydrated.current = true;
+                    setProfile((prev) => {
+                        const serverBadges = Array.isArray(data.badges)
+                            ? data.badges.map((b: { id?: string; badgeId?: string; progress?: number; target?: number; unlocked?: boolean; earned?: boolean }) => ({
+                                badgeId: (b.id || b.badgeId || "") as RewardBadgeId,
+                                progress: b.progress ?? (b.unlocked || b.earned ? (b.target ?? 1) : 0),
+                                earned: Boolean(b.unlocked || b.earned),
+                              }))
+                            : prev.badges;
+
+                        return {
+                            ...prev,
+                            points: typeof data.points === "number" ? data.points : (prev.points || 1850),
+                            tier: {
+                                current: data.tier || "VIP FAN",
+                                next: data.tier === "VIP FAN" ? "PADDOCK CLUB" : "VIP FAN",
+                                nextTierPoints: data.tier === "VIP FAN" ? 5000 : 2000,
+                            },
+                            badges: serverBadges,
+                        };
+                    });
+                }
+            } catch {
+                // Offline fallback
+            }
+        }
+
+        fetchLiveRewards();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [activeTicketCode]);
+
+    // Gives Demo Mode a useful starting rewards balance if not live hydrated
     function seedDemoRewards() {
-        if (demoRewardsSeeded.current
-        ) return;
+        if (demoRewardsSeeded.current || liveHydrated.current) return;
 
         demoRewardsSeeded.current = true;
 
@@ -215,6 +264,14 @@ export default function RewardsProvider({
                 ],
             })
         );
+
+        // Sync redemption to server in background
+        const ticket = activeTicketCode || "GP-3820-X";
+        fetch("/api/rewards", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticketCode: ticket, rewardId: reward.id }),
+        }).catch(() => {});
 
         return historyEntry;
     }

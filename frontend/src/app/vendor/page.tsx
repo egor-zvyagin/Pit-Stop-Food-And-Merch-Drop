@@ -816,13 +816,13 @@ export default function VendorTerminalPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      const sample = 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821';
+                      const sample = 'AGPC1.AGPC-2027-KEY-01.DEMO.GP-2026-X9K2P4';
                       setPassInput(sample);
                       verifyPayload(sample);
                     }}
                     className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1 text-xs text-neutral-300 hover:border-neutral-500"
                   >
-                    Sample QR (GP-8821)
+                    Sample QR (GP-2026-X9K2P4)
                   </button>
                   <button
                     type="button"
@@ -928,7 +928,7 @@ export default function VendorTerminalPage() {
                           : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                       }`}
                     >
-                      {activeOrder.status}
+                      {activeOrder.status === 'READY_FOR_PICKUP' ? 'READY FOR PICKUP' : activeOrder.status.replace(/_/g, ' ')}
                     </span>
                     <div className="text-xs text-neutral-400 mt-1 font-mono">
                       Locker: {activeOrder.station.lockerNumber}
@@ -1060,7 +1060,7 @@ export default function VendorTerminalPage() {
                               : 'bg-amber-500/20 text-amber-400'
                           }`}
                         >
-                          {ord.status}
+                          {ord.status === 'READY_FOR_PICKUP' ? 'READY FOR PICKUP' : ord.status.replace(/_/g, ' ')}
                         </span>
                       </div>
 

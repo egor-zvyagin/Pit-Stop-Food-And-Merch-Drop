@@ -74,7 +74,7 @@ export default function OrderContent() {
             <div className="mt-1">
               <Typography
                 variant="screenTitle"
-                className="!text-[28px] !leading-[29.4px] font-display font-black uppercase text-white"
+                className="!text-[28px] !leading-[29.4px] font-display font-black uppercase !text-[var(--color-text-primary)]"
               >
                 PIT STOP FUEL & GEAR
               </Typography>

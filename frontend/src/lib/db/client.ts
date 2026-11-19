@@ -243,6 +243,17 @@ const REWARDS_VOUCHERS_CATALOG: VoucherRecord[] = [
     active: true,
   },
   {
+    code: 'FREE-FRIES',
+    title: 'Free Fries Upgrade',
+    description: 'Complimentary High-Downforce Fries on next order',
+    discountType: 'FREE_ITEM',
+    value: 9.5,
+    freeItemId: 'fries',
+    minOrder: 0,
+    pointsCost: 800,
+    active: true,
+  },
+  {
     code: 'GP-SAVE05',
     title: '$5.00 Off Voucher',
     description: '$5 discount applied at checkout',
@@ -804,6 +815,7 @@ export const db = {
         v.code.toUpperCase() === rewardId.toUpperCase() ||
         v.title.toLowerCase().includes(rewardId.toLowerCase()) ||
         (rewardId === 'free-cold-brew' && v.code === 'GP-BREW01') ||
+        (rewardId === 'free-fries' && v.code === 'FREE-FRIES') ||
         (rewardId === 'five-off' && v.code === 'GP-SAVE05') ||
         (rewardId === 'free-burger' && v.code === 'FREE-BURGER') ||
         (rewardId === 'ten-off' && v.code === 'GP-SAVE10')

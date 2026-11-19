@@ -170,15 +170,15 @@ export default function TracksideLocationBar({
   if (mode === "simulated") {
     return (
       <div className="mt-3 px-4">
-        <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 shadow-sm space-y-2.5">
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 shadow-sm space-y-2.5">
           {/* Header row with simulation badge and real GPS toggle */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
               </span>
-              <span className="font-display font-bold text-[11px] text-blue-300 tracking-wider uppercase">
+              <span className="font-display font-bold text-[11px] text-blue-900 tracking-wider uppercase">
                 Trackside Simulation Active
               </span>
             </div>
@@ -186,15 +186,15 @@ export default function TracksideLocationBar({
             <button
               type="button"
               onClick={onRequestLiveGps}
-              className="text-[10px] font-display font-bold uppercase text-blue-300 hover:text-white underline decoration-blue-400/50 flex items-center gap-1"
+              className="text-[10px] font-display font-bold uppercase text-blue-700 hover:text-blue-900 underline decoration-blue-400 flex items-center gap-1"
             >
-              <Icon icon="ph:satellite-bold" width="12" height="12" />
+              <Icon icon="ph:satellite-bold" width={12} height={12} />
               <span>Use Real GPS</span>
             </button>
           </div>
 
-          {/* Grandstand Preset Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+          {/* Grandstand Preset Chips (2-Column Grid) */}
+          <div className="grid grid-cols-2 gap-2">
             {PRESET_CHIPS.map((preset) => {
               const isActive = activePresetId === preset.id;
               return (
@@ -202,22 +202,22 @@ export default function TracksideLocationBar({
                   key={preset.id}
                   type="button"
                   onClick={() => onEnableSimulation(preset.id)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-display font-bold tracking-wide uppercase whitespace-nowrap transition-all flex items-center gap-1 shrink-0 ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-display font-bold tracking-wide uppercase whitespace-nowrap transition-all flex items-center justify-center gap-1.5 ${
                     isActive
-                      ? "bg-blue-600 text-white shadow-sm ring-1 ring-white/20"
-                      : "bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-white hover:border-blue-400/40"
+                      ? "bg-blue-600 text-white shadow-sm ring-1 ring-blue-700"
+                      : "bg-white border border-blue-200 text-blue-950 hover:bg-blue-100"
                   }`}
                 >
-                  <Icon icon="ph:map-pin-bold" width="11" height="11" />
+                  <Icon icon="ph:map-pin-bold" width={12} height={12} className={isActive ? "text-white" : "text-blue-600"} />
                   <span>{preset.label}</span>
-                  <span className="text-[10px] opacity-70">({preset.turn})</span>
+                  <span className={`text-[10px] ${isActive ? "opacity-80" : "text-blue-700"}`}>({preset.turn})</span>
                 </button>
               );
             })}
           </div>
 
           {/* Walk to Pod Step Simulation & Step Button */}
-          <div className="flex items-center gap-2 pt-1 border-t border-blue-500/20">
+          <div className="flex items-center gap-2 pt-1 border-t border-blue-200">
             <button
               type="button"
               onClick={() => {
@@ -230,13 +230,13 @@ export default function TracksideLocationBar({
               className={`flex-1 h-9 px-3 rounded-lg font-display font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1.5 transition-all shadow-sm ${
                 isSimulatingWalk
                   ? "bg-amber-600 text-white animate-pulse"
-                  : "bg-[var(--color-surface)] border border-blue-400/40 text-blue-200 hover:bg-blue-500/20"
+                  : "bg-white border border-blue-300 text-blue-950 hover:bg-blue-100"
               }`}
             >
               <Icon
                 icon={isSimulatingWalk ? "ph:stop-circle-bold" : "ph:person-simple-walk-bold"}
-                width="16"
-                height="16"
+                width={16}
+                height={16}
               />
               <span>
                 {isSimulatingWalk ? "Walking to Pod..." : `Walk to Pod ${targetPod}`}
@@ -246,7 +246,7 @@ export default function TracksideLocationBar({
             <button
               type="button"
               onClick={onDisableSimulation}
-              className="h-9 px-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-border)]/50 text-[var(--color-text-muted)] text-[11px] font-display font-bold uppercase transition-all"
+              className="h-9 px-3 rounded-lg border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-700 text-[11px] font-display font-bold uppercase transition-all"
             >
               Reset
             </button>

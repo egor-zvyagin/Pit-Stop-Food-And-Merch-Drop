@@ -37,7 +37,7 @@ export default function MenuCard({ item }: MenuCardProps) {
   const canIncrease = !isSoldOut && quantity < stock;
 
   return (
-    <Card className={`!p-[14px] overflow-hidden transition-all ${isSoldOut ? "opacity-60 bg-neutral-900/40" : ""}`}>
+    <Card className={`!p-[14px] overflow-hidden transition-all ${isSoldOut ? "opacity-60 bg-neutral-100" : ""}`}>
       <div className="flex gap-3">
         {/* Item Photography with Next.js <Image> & Fallback */}
         <div className="relative h-[80px] w-[80px] shrink-0 overflow-hidden rounded-[12px] bg-neutral-900 border border-[var(--color-border)]">
@@ -56,7 +56,7 @@ export default function MenuCard({ item }: MenuCardProps) {
               SOLD OUT
             </span>
           ) : item.tag ? (
-            <span className="absolute bottom-1 left-1 rounded bg-black/85 px-1 py-0.5 text-[8px] font-black uppercase tracking-wider text-[var(--color-brand-primary)]">
+            <span className="absolute bottom-1 left-1 rounded bg-[var(--color-brand-primary)] px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-white shadow-sm">
               {item.tag}
             </span>
           ) : null}
@@ -68,7 +68,7 @@ export default function MenuCard({ item }: MenuCardProps) {
             <div className="flex items-start justify-between gap-2">
               <Typography
                 variant="cardHeading"
-                className="!text-[15px] !leading-[18px] font-bold text-white line-clamp-1"
+                className="!text-[15px] !leading-[18px] font-bold !text-[var(--color-text-primary)] line-clamp-1"
               >
                 {item.name}
               </Typography>
@@ -76,7 +76,7 @@ export default function MenuCard({ item }: MenuCardProps) {
               <div className="text-right shrink-0">
                 <Typography
                   variant="price"
-                  className="!text-[var(--color-status-warning)] font-display font-black text-sm"
+                  className="!text-[var(--color-text-primary)] font-display font-black text-sm"
                 >
                   ${item.price.toFixed(2)}
                 </Typography>
@@ -97,18 +97,18 @@ export default function MenuCard({ item }: MenuCardProps) {
             {/* Urgency Badge / Sold Out Pill / Prep Time */}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {isSoldOut && (
-                <span className="inline-flex items-center rounded-md bg-red-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-400 border border-red-500/40">
+                <span className="inline-flex items-center rounded-md bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-700 border border-red-200">
                   SOLD OUT
                 </span>
               )}
               {isUrgent && (
-                <span className="inline-flex items-center rounded-md bg-amber-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-400 border border-amber-500/40 animate-pulse">
+                <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-800 border border-amber-200 animate-pulse">
                   ONLY {stock} LEFT
                 </span>
               )}
               {item.prepTime && (
-                <div className="flex items-center gap-1 text-[10px] text-neutral-400">
-                  <Icon icon="mdi:clock-outline" width={11} height={11} className="text-amber-400" />
+                <div className="flex items-center gap-1 text-[10px] text-neutral-600 font-medium">
+                  <Icon icon="mdi:clock-outline" width={11} height={11} className="text-amber-600" />
                   <span>{item.prepTime}</span>
                 </div>
               )}
@@ -140,7 +140,7 @@ export default function MenuCard({ item }: MenuCardProps) {
             </Button>
 
             <div className="min-w-[18px] text-center">
-              <span className="font-mono text-xs font-bold text-white">
+              <span className="font-mono text-xs font-bold !text-[var(--color-text-primary)]">
                 {quantity}
               </span>
             </div>

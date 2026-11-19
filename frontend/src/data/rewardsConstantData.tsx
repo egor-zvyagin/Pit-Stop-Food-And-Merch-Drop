@@ -222,9 +222,7 @@ export const REDEEM_REWARDS: RedeemReward[] = [
             "Makes your High-Downforce Fries free on your next order.",
         pointsCost: 800,
         icon: "noto:french-fries",
-
-        // Null becaause checkout has a matching voucher effect
-        voucherId: null,
+        voucherId: "free-fries",
     },
     {
         id: "five-off",

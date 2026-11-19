@@ -74,10 +74,10 @@ export default function PitStopInfo({
                     </Typography>
                 </div>
 
-                <div>
+                <div className="min-w-0 flex-1">
                     <Typography
                         variant="cardHeading"
-                        className="block"
+                        className="block whitespace-nowrap"
                     >
                         {stop.name}
                     </Typography>
@@ -107,9 +107,9 @@ export default function PitStopInfo({
             </div>
 
             {isFastestTotal ? (
-                <div className="flex flex-col items-end gap-1 shrink-0">
+                <div className="flex flex-col items-end gap-1 shrink-0 whitespace-nowrap">
                     <StatusBadge variant="fastest">
-                        FASTEST TOTAL (WALK + QUEUE)
+                        FASTEST TOTAL
                     </StatusBadge>
                     {stop.status && stop.status !== "FASTEST" && (
                         <span className="text-[10px] text-[var(--color-text-muted)] font-mono font-medium">
@@ -118,9 +118,11 @@ export default function PitStopInfo({
                     )}
                 </div>
             ) : (
-                <StatusBadge variant={stop.variant}>
-                    {stop.status}
-                </StatusBadge>
+                <div className="shrink-0 whitespace-nowrap">
+                    <StatusBadge variant={stop.variant}>
+                        {stop.status}
+                    </StatusBadge>
+                </div>
             )}
         </div>
     );

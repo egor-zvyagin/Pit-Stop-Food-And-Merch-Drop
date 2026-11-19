@@ -64,7 +64,7 @@ export default function OrderItemCard({
   const canIncrease = !isSoldOut && quantity < stock;
 
   return (
-    <Card className={`!p-[14px] transition-all ${isSoldOut ? "opacity-60 bg-neutral-900/40" : ""}`}>
+    <Card className={`!p-[14px] transition-all ${isSoldOut ? "opacity-60 bg-neutral-100" : ""}`}>
       <div className="flex gap-3">
         {/* Item Photography with Next.js <Image> & Fallback */}
         <div
@@ -112,7 +112,7 @@ export default function OrderItemCard({
               SOLD OUT
             </span>
           ) : item.tag ? (
-            <span className="absolute bottom-1 left-1 rounded bg-black/85 px-1 py-0.5 text-[8px] font-black uppercase tracking-wider text-[var(--color-brand-primary)]">
+            <span className="absolute bottom-1 left-1 rounded bg-[var(--color-brand-primary)] px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider text-white shadow-sm">
               {item.tag}
             </span>
           ) : null}
@@ -123,14 +123,14 @@ export default function OrderItemCard({
           <div className="flex items-start justify-between gap-3">
             <Typography
               variant="cardHeading"
-              className="!text-[15px] !leading-[17px] font-bold text-white line-clamp-1"
+              className="!text-[15px] !leading-[17px] font-bold !text-[var(--color-text-primary)] line-clamp-1"
             >
               {item.name}
             </Typography>
 
             <Typography
               variant="price"
-              className="shrink-0 !text-[var(--color-status-warning)] font-display font-black text-sm"
+              className="shrink-0 !text-[var(--color-text-primary)] font-display font-black text-sm"
             >
               ${item.price.toFixed(2)}
             </Typography>
@@ -148,12 +148,12 @@ export default function OrderItemCard({
           {/* Urgency Pill or Sold Out pill */}
           <div className="mt-1 flex items-center gap-2">
             {isSoldOut && (
-              <span className="inline-flex items-center rounded-md bg-red-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-400 border border-red-500/40">
+              <span className="inline-flex items-center rounded-md bg-red-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-700 border border-red-200">
                 SOLD OUT
               </span>
             )}
             {isUrgent && (
-              <span className="inline-flex items-center rounded-md bg-amber-950/80 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-400 border border-amber-500/40 animate-pulse">
+              <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-800 border border-amber-200 animate-pulse">
                 ONLY {stock} LEFT
               </span>
             )}
@@ -184,7 +184,7 @@ export default function OrderItemCard({
             </Button>
 
             <div className="min-w-[18px] text-center">
-              <Typography variant="cardHeading" className="text-white font-mono font-bold">
+              <Typography variant="cardHeading" className="!text-[var(--color-text-primary)] font-mono font-bold">
                 {quantity}
               </Typography>
             </div>

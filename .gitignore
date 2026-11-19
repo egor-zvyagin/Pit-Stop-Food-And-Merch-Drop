@@ -24,4 +24,6 @@ Thumbs.db
 
 # Audit Snapshots
 CODEBASE_SNAPSHOT.md
+visual-audit/
+frontend/visual-audit/
 

@@ -19,7 +19,7 @@ const FLAG_CONFIG: Array<{
     label: 'Green Flag',
     icon: 'mdi:flag',
     colors: {
-      active: 'border-emerald-500 bg-emerald-500/20 text-emerald-300 shadow-emerald-500/30',
+      active: 'border-emerald-500 bg-emerald-500/25 text-emerald-300 shadow-lg shadow-emerald-500/25 ring-2 ring-emerald-400/50',
       idle: 'border-neutral-700 bg-neutral-900/80 text-neutral-400 hover:border-emerald-500/50 hover:text-emerald-300',
     },
   },
@@ -28,7 +28,7 @@ const FLAG_CONFIG: Array<{
     label: 'Safety Car',
     icon: 'mdi:car-emergency',
     colors: {
-      active: 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-amber-500/30',
+      active: 'border-amber-500 bg-amber-500/25 text-amber-300 shadow-lg shadow-amber-500/25 ring-2 ring-amber-400/50',
       idle: 'border-neutral-700 bg-neutral-900/80 text-neutral-400 hover:border-amber-500/50 hover:text-amber-300',
     },
   },
@@ -37,7 +37,7 @@ const FLAG_CONFIG: Array<{
     label: 'Red Flag',
     icon: 'mdi:flag',
     colors: {
-      active: 'border-red-500 bg-red-500/20 text-red-300 shadow-red-500/30',
+      active: 'border-red-500 bg-red-500/25 text-red-300 shadow-lg shadow-red-500/25 ring-2 ring-red-400/50',
       idle: 'border-neutral-700 bg-neutral-900/80 text-neutral-400 hover:border-red-500/50 hover:text-red-300',
     },
   },
@@ -46,8 +46,8 @@ const FLAG_CONFIG: Array<{
     label: 'Post Race',
     icon: 'mdi:flag-checkered',
     colors: {
-      active: 'border-purple-500 bg-purple-500/20 text-purple-300 shadow-purple-500/30',
-      idle: 'border-neutral-700 bg-neutral-900/80 text-neutral-400 hover:border-purple-500/50 hover:text-purple-300',
+      active: 'border-indigo-500 bg-indigo-500/25 text-indigo-300 shadow-lg shadow-indigo-500/25 ring-2 ring-indigo-400/50',
+      idle: 'border-neutral-700 bg-neutral-900/80 text-neutral-400 hover:border-indigo-500/50 hover:text-indigo-300',
     },
   },
 ];

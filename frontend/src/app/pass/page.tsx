@@ -29,9 +29,9 @@ export default function OrderPassPage() {
   };
 
   const defaultOrder = useMemo(() => ({
-    orderId: "GP-8821",
+    orderId: "GP-2026-X9K2P4",
     pinCode: "8821",
-    qrPayload: "AGPC1.AGPC-2027-KEY-01.DEMO.GP-8821",
+    qrPayload: "AGPC1.AGPC-2027-KEY-01.DEMO.GP-2026-X9K2P4",
     pickupStation: {
       id: "M2",
       name: "Pit Stop M2 (Turn 9 East)",
@@ -51,11 +51,11 @@ export default function OrderPassPage() {
     if (!orderContextOrder) return defaultOrder;
 
     return {
-      orderId: orderContextOrder.reference || orderContextOrder.orderId || "GP-8821",
+      orderId: orderContextOrder.reference || orderContextOrder.orderId || "GP-2026-X9K2P4",
       pinCode: orderContextOrder.collectionCode || orderContextOrder.pinCode || "8821",
       qrPayload:
         orderContextOrder.qrPayload ||
-        `AGPC1.AGPC-2027-KEY-01.DEMO.${orderContextOrder.reference || "GP-8821"}`,
+        `AGPC1.AGPC-2027-KEY-01.DEMO.${orderContextOrder.reference || "GP-2026-X9K2P4"}`,
       pickupStation: {
         id: orderContextOrder.pitStopId || "M2",
         name: orderContextOrder.stationName || `Pit Stop ${orderContextOrder.pitStopId || "M2"}`,

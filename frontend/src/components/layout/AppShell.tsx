@@ -27,7 +27,7 @@ export default function AppShell({ children }: AppShellProps) {
   // Consumer mobile layout (max 430px wide, centered)
   return (
     <main className="min-h-screen w-full bg-[var(--color-page-background)]">
-      <div className="mx-auto w-full max-w-[430px] relative min-h-screen flex flex-col">
+      <div className="mx-auto w-full max-w-[430px] relative min-h-screen flex flex-col pb-24">
         <AppHeader onSettingsClick={() => setSettingsOpen(true)} />
 
         <div className="flex-1">{children}</div>

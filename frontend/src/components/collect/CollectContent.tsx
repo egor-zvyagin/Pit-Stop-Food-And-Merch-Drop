@@ -66,14 +66,14 @@ export default function CollectContent() {
         <div className="min-h-screen bg-[var(--color-page-background)] flex flex-col">
             {/* Top Segmented Control: [ Active Order | Order History ] */}
             <div className="sticky top-0 z-20 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5">
-                <div className="flex rounded-xl bg-neutral-900 p-1 border border-white/10">
+                <div className="flex rounded-xl bg-neutral-100 p-1 border border-neutral-300">
                     <button
                         type="button"
                         onClick={() => setActiveTab("active")}
                         className={`flex-1 py-2 text-center rounded-lg font-display font-black text-xs uppercase tracking-wider transition-all ${
                             activeTab === "active"
                                 ? "bg-[var(--color-brand-primary)] text-white shadow-sm"
-                                : "text-[var(--color-text-muted)] hover:text-white"
+                                : "text-neutral-700 hover:text-neutral-900 font-bold"
                         }`}
                     >
                         Active Order
@@ -84,7 +84,7 @@ export default function CollectContent() {
                         className={`flex-1 py-2 text-center rounded-lg font-display font-black text-xs uppercase tracking-wider transition-all ${
                             activeTab === "history"
                                 ? "bg-[var(--color-brand-primary)] text-white shadow-sm"
-                                : "text-[var(--color-text-muted)] hover:text-white"
+                                : "text-neutral-700 hover:text-neutral-900 font-bold"
                         }`}
                     >
                         Order History

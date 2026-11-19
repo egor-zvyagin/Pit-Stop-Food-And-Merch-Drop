@@ -59,8 +59,8 @@ export default function ShareTrackerButton({
     variant === "primary"
       ? "bg-[var(--color-brand-primary)] hover:bg-red-700 text-white shadow-card"
       : variant === "subtle"
-      ? "bg-transparent border border-white/20 text-white/80 hover:bg-white/10"
-      : "bg-[var(--color-surface)] border border-[var(--color-border)] text-white hover:bg-[var(--color-border)] shadow-sm";
+      ? "bg-transparent border border-neutral-300 text-neutral-700 hover:bg-neutral-100"
+      : "bg-[var(--color-surface)] border border-[var(--color-border)] text-neutral-900 hover:bg-neutral-100 shadow-sm";
 
   return (
     <div className="relative">

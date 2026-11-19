@@ -112,8 +112,3 @@ To enable keyless deployment from GitHub Actions:
 2. Add secret `AWS_GITHUB_OIDC_ROLE_ARN` with value:
    `arn:aws:iam::608531435714:role/pitstop-github-actions-terraform-role`
 (Zero static AWS credentials needed!)
-
-- [ ] Merge `feat/v3-production-platform` to `main`, push to `origin`
-- [ ] Verify Amplify build job reaches `SUCCEED`
-- [ ] Run live smoke suite against `https://main.d3m92lj3xoqgf9.amplifyapp.com`
-- [ ] Confirm CloudWatch structured logs and finalize implementation report

@@ -7,7 +7,6 @@ import ChangePitStopPopup from "@/components/popUp/ChangePitStopPopup";
 import {
     CHECKOUT_VOUCHERS,
     CheckoutVoucherData,
-    REWARD_POINT_MULTIPLIER,
     SERVICE_FEES_ITEMS,
     SERVICE_FEES_ZERO_ITEMS
 } from "@/data/checkoutConstantData";
@@ -95,9 +94,9 @@ export default function CheckoutContent() {
     const liveVoucherDiscount = livePricing?.voucherDiscount ?? voucherDiscount;
     const liveServiceFee = livePricing?.serviceFee ?? serviceFee;
     const liveTotal = livePricing?.total ?? (liveSubtotal + liveServiceFee - liveDynamicDiscount - liveVoucherDiscount);
-    const totalBeforeVoucher = liveSubtotal + liveServiceFee;
 
-    const rewardPoints = Math.round(totalBeforeVoucher * REWARD_POINT_MULTIPLIER);
+    // Formula uses 2x total to match calculateOrderPricing()
+    const rewardPoints = livePricing?.loyaltyPointsEarned ?? Math.round(liveTotal * 2);
 
     // Handle circuit state changes from banner
     const handleCircuitStateChange = useCallback((state: CircuitState) => {
@@ -296,7 +295,7 @@ export default function CheckoutContent() {
                     <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                             <Icon icon="ph:users-three-bold" width={18} height={18} className="text-[var(--color-brand-primary)] shrink-0" />
-                            <span className="text-[13px] font-display font-bold text-white">
+                            <span className="text-[13px] font-display font-bold text-[var(--color-text-primary)]">
                                 Group Order (1 Collector for Row)
                             </span>
                         </div>
@@ -329,7 +328,7 @@ export default function CheckoutContent() {
                                 value={seatNote}
                                 onChange={(e) => setSeatNote(e.target.value)}
                                 placeholder="e.g. Clark Stand Row H, Seats 14-16"
-                                className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-page-background)] px-3 py-2 text-[13px] text-white placeholder-[var(--color-text-muted)] focus:border-[var(--color-brand-primary)] focus:outline-none"
+                                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-900 placeholder:text-neutral-500 focus:border-[var(--color-brand-primary)] focus:outline-none"
                             />
                         </div>
                     )}

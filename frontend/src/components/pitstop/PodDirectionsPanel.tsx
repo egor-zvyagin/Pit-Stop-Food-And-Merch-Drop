@@ -82,7 +82,7 @@ export default function PodDirectionsPanel({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-display font-bold text-[10px] tracking-wider uppercase">
+          <span className="px-2 py-0.5 rounded-full bg-emerald-100 border border-emerald-200 text-emerald-800 font-display font-bold text-[10px] tracking-wider uppercase whitespace-nowrap shrink-0">
             ~{etaMins}m walk
           </span>
           <Icon

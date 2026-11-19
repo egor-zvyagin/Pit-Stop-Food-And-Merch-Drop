@@ -44,6 +44,16 @@ export const CHECKOUT_VOUCHERS = [
             itemId: "cold-brew",
         },
     },
+    {
+        id: "free-fries",
+        code: "FREE-FRIES",
+        title: "Free Fries Upgrade",
+        description: "Trackside Loaded Fries free",
+        effect: {
+            type: "freeItem",
+            itemId: "fries",
+        },
+    },
 ] as const;
 
 export type CheckoutVoucherData =

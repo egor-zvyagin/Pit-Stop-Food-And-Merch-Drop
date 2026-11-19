@@ -139,6 +139,32 @@ export default function OrderHistoryView({ ticketCode }: OrderHistoryViewProps) 
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    const s = (status || "").toUpperCase();
+    if (s === "COMPLETED" || s === "COLLECTED") {
+      return {
+        label: "Completed",
+        className: "bg-emerald-100 border border-emerald-200 text-emerald-800",
+      };
+    }
+    if (s === "READY" || s === "READY_FOR_PICKUP") {
+      return {
+        label: "Ready for Pickup",
+        className: "bg-blue-100 border border-blue-200 text-blue-800",
+      };
+    }
+    if (s === "PREPARING") {
+      return {
+        label: "Preparing",
+        className: "bg-amber-100 border border-amber-200 text-amber-800",
+      };
+    }
+    return {
+      label: "Received",
+      className: "bg-neutral-100 border border-neutral-300 text-neutral-800",
+    };
+  };
+
   return (
     <div className="flex flex-col gap-3 px-4 py-4 pb-[calc(var(--bottom-nav-height)+24px)]">
       {/* Header Info */}
@@ -166,7 +192,7 @@ export default function OrderHistoryView({ ticketCode }: OrderHistoryViewProps) 
       ) : orders.length === 0 ? (
         <Card className="!rounded-[14px] !p-6 text-center">
           <Icon icon="ph:clock-countdown-bold" width={36} height={36} className="mx-auto text-[var(--color-text-muted)] mb-2" />
-          <Typography variant="cardHeading" className="text-white block font-bold">
+          <Typography variant="cardHeading" className="!text-[var(--color-text-primary)] block font-bold">
             No Past Orders Yet
           </Typography>
           <p className="text-xs text-[var(--color-text-muted)] mt-1">
@@ -176,14 +202,14 @@ export default function OrderHistoryView({ ticketCode }: OrderHistoryViewProps) 
       ) : (
         <div className="space-y-3">
           {orders.map((order) => {
-            const isCompleted = order.status === "COMPLETED";
+            const badge = getStatusBadge(order.status);
 
             return (
               <Card key={order.orderId} className="!rounded-xl !p-4 border border-[var(--color-border)] shadow-md">
                 {/* Order Header */}
                 <div className="flex items-start justify-between border-b border-[var(--color-border)] pb-2.5 mb-2.5">
                   <div>
-                    <span className="font-mono text-xs font-black text-white">
+                    <span className="font-mono text-xs font-black text-[var(--color-text-primary)]">
                       {order.orderId}
                     </span>
                     <span className="block text-[11px] text-[var(--color-text-muted)]">
@@ -193,35 +219,31 @@ export default function OrderHistoryView({ ticketCode }: OrderHistoryViewProps) 
 
                   <div className="text-right">
                     <span
-                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                        isCompleted
-                          ? "bg-emerald-950 border border-emerald-500/40 text-emerald-400"
-                          : "bg-amber-950 border border-amber-500/40 text-amber-400"
-                      }`}
+                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${badge.className}`}
                     >
-                      {order.status}
+                      {badge.label}
                     </span>
-                    <span className="block text-[10px] text-amber-400 font-bold mt-0.5">
+                    <span className="block text-[10px] text-amber-600 font-bold mt-0.5">
                       +{order.loyaltyPointsEarned} pts
                     </span>
                   </div>
                 </div>
 
                 {/* Pod Location */}
-                <div className="flex items-center gap-1.5 text-xs text-white/80 mb-2">
+                <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-primary)] mb-2">
                   <Icon icon="ph:map-pin-bold" width={13} height={13} className="text-[var(--color-brand-primary)] shrink-0" />
                   <span className="font-bold">{order.pickupStationName || `Pit Stop ${order.pickupStationId}`}</span>
                   <span className="text-[var(--color-text-muted)]">• Bay {order.counterNumber || "#04"}</span>
                 </div>
 
                 {/* Items List */}
-                <div className="rounded-lg bg-neutral-900/60 p-2.5 mb-3 border border-white/5 space-y-1">
+                <div className="rounded-lg bg-[var(--color-page-background)] p-2.5 mb-3 border border-[var(--color-border)] space-y-1">
                   {order.items.map((item, idx) => (
                     <div key={idx} className="flex items-center justify-between text-xs">
-                      <span className="text-white/90">
-                        <span className="font-mono text-amber-400 font-bold">×{item.quantity}</span> {item.name}
+                      <span className="text-[var(--color-text-primary)]">
+                        <span className="font-mono text-amber-600 font-bold">×{item.quantity}</span> {item.name}
                       </span>
-                      <span className="font-mono text-[var(--color-text-muted)]">
+                      <span className="font-mono text-[var(--color-text-muted)] font-medium">
                         ${((item.unitPrice || 0) * item.quantity).toFixed(2)}
                       </span>
                     </div>
