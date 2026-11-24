@@ -7,18 +7,18 @@ export const CHECKOUT_VOUCHERS = [
     {
         id: "pitstop-15-discount",
         code: "PITSTOP15",
-        title: "15% Green-Flag Discount",
-        description: "-15% Off Trackside Concessions",
+        title: "15% off your order",
+        description: "15% off food and merch",
         effect: {
             type: "discount",
             amount: 6.5,
         },
     },
     {
-        id: "eatclub-20-discount",
-        code: "EATCLUB20",
-        title: "20% EatClub Trackside Yield",
-        description: "-20% Off Concession Order",
+        id: "crew-20-discount",
+        code: "CREW20",
+        title: "20% crew discount",
+        description: "20% off your order",
         effect: {
             type: "discount",
             amount: 8.5,
@@ -37,21 +37,21 @@ export const CHECKOUT_VOUCHERS = [
     {
         id: "free-cold-brew",
         code: "GP-BREW01",
-        title: "Free Cold Brew",
-        description: "Added to your order for free",
+        title: "Free spring water",
+        description: "Spring water on us",
         effect: {
             type: "freeItem",
-            itemId: "cold-brew",
+            itemId: "still-water",
         },
     },
     {
         id: "free-fries",
         code: "FREE-FRIES",
-        title: "Free Fries Upgrade",
-        description: "Trackside Loaded Fries free",
+        title: "Free loaded fries",
+        description: "Loaded fries on us",
         effect: {
             type: "freeItem",
-            itemId: "fries",
+            itemId: "loaded-fries",
         },
     },
 ] as const;

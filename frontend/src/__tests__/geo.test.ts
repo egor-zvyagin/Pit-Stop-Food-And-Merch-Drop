@@ -351,6 +351,10 @@ describe('Geospatial Engine & Pedestrian Routing', () => {
         {
           id: 'M1',
           name: 'Close Busy Station',
+          label: 'Close',
+          area: 'Test',
+          walkMins: 1,
+          queueMins: 15,
           distance: '50m',
           status: 'HEAVY TRAFFIC',
           variant: 'heavyTraffic',
@@ -360,6 +364,10 @@ describe('Geospatial Engine & Pedestrian Routing', () => {
         {
           id: 'M2',
           name: 'Far Empty Station',
+          label: 'Far',
+          area: 'Test',
+          walkMins: 4,
+          queueMins: 1,
           distance: '300m',
           status: 'FASTEST',
           variant: 'fastest',

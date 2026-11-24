@@ -129,7 +129,7 @@ async function seedDatabase() {
     {
       ticketCode: 'GP-9014-P',
       verified: true,
-      holderName: 'Grand Prix Fan',
+      holderName: 'Race fan',
       ticketType: '3-Day General Admission',
       viewingArea: {
         grandstand: 'Brabham Grandstand',

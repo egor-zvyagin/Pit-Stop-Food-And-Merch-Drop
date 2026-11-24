@@ -230,16 +230,16 @@ export default function PitStopMap(props: PitStopMapProps) {
     (podId: string) => {
       const station = stations?.find((s) => s.id === podId);
       if (station) {
-        if (station.status === "FASTEST" || station.status === "LOW QUEUE") return "#00D67A";
-        if (station.status === "MODERATE") return "#C8A800";
-        if (station.status === "HEAVY TRAFFIC") return "#E10600";
+        if (station.status === "FASTEST" || station.status === "LOW QUEUE") return "#3ccf7f";
+        if (station.status === "MODERATE") return "#ffb020";
+        if (station.status === "HEAVY TRAFFIC") return "#ff5a4e";
       }
       const defaultPod = PIT_STOPS.find((p) => p.id === podId);
       if (defaultPod) {
-        if (defaultPod.variant === "fastest" || defaultPod.variant === "lowQueue") return "#00D67A";
-        if (defaultPod.variant === "heavyTraffic") return "#E10600";
+        if (defaultPod.variant === "fastest" || defaultPod.variant === "lowQueue") return "#3ccf7f";
+        if (defaultPod.variant === "heavyTraffic") return "#ff5a4e";
       }
-      return "#00D67A";
+      return "#3ccf7f";
     },
     [stations]
   );
@@ -360,7 +360,7 @@ export default function PitStopMap(props: PitStopMapProps) {
               type="line"
               layout={{ "line-cap": "round", "line-join": "round" }}
               paint={{
-                "line-color": "#E10600",
+                "line-color": "#ffd100",
                 "line-width": 3,
                 "line-dasharray": [3, 2],
               }}
@@ -485,7 +485,7 @@ export default function PitStopMap(props: PitStopMapProps) {
                     aria-pressed={isSelected}
                     className={`flex items-center justify-center rounded-full transition-all duration-200 shadow-md ${
                       isSelected
-                        ? "w-8 h-8 bg-[var(--color-brand-primary)] text-white ring-4 ring-[#E10600]/40 font-black scale-110 z-30"
+                        ? "w-8 h-8 bg-[#ffd100] text-[#1d2125] ring-4 ring-[#ffd100]/40 font-black scale-110 z-30"
                         : "w-7 h-7 bg-[var(--color-surface)] border-2 text-[var(--color-text-primary)] hover:scale-105 z-10"
                     }`}
                     style={{
@@ -507,7 +507,7 @@ export default function PitStopMap(props: PitStopMapProps) {
                   <div
                     className={`mt-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow pointer-events-none transition-all ${
                       isSelected
-                        ? "bg-[#E10600] text-white ring-2 ring-white/30"
+                        ? "bg-[#ffd100] text-[#1d2125] ring-2 ring-white/30"
                         : "bg-black/85 text-white border border-white/20"
                     }`}
                   >
@@ -556,13 +556,13 @@ export default function PitStopMap(props: PitStopMapProps) {
                       }}
                       className={`w-full text-left px-3 py-1.5 flex items-center justify-between transition-colors ${
                         activeStyleKey === key
-                          ? "text-[#E10600] font-bold bg-white/5"
+                          ? "text-[#ffd100] font-bold bg-white/5"
                           : "text-white/80 hover:text-white hover:bg-white/10"
                       }`}
                     >
                       <span>{VECTOR_STYLES[key].name}</span>
                       {activeStyleKey === key && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#E10600]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#ffd100]" />
                       )}
                     </button>
                   ))}

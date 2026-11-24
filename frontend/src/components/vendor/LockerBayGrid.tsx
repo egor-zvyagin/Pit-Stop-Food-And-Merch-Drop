@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Icon } from '@iconify/react';
+import { Icon } from "@/components/ui/Icon";
 import { LockerBayStatus } from '@/lib/types';
 
 interface OrderSummaryLike {
@@ -144,7 +144,7 @@ export default function LockerBayGrid({
       <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
         <div className="flex items-center gap-2">
           <Icon icon="mdi:locker-multiple" width={22} height={22} className="text-red-500" />
-          <h2 className="font-display font-black text-base uppercase tracking-wider text-white">
+          <h2 className="font-display font-black text-base text-white">
             Smart Locker Bays (Pod {stationId})
           </h2>
         </div>
@@ -210,10 +210,10 @@ export default function LockerBayGrid({
             >
               {/* Top row: Bay # and status badge */}
               <div className="flex items-center justify-between w-full">
-                <span className="font-display font-black text-base text-white tracking-wider">
+                <span className="font-display font-black text-base text-white">
                   {bay.bay}
                 </span>
-                <span className={`text-[10px] font-bold uppercase rounded px-1.5 py-0.5 border ${badgeColor}`}>
+                <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 border ${badgeColor}`}>
                   {isOccupied ? (status === 'READY_FOR_PICKUP' ? 'Ready' : status === 'PREPARING' ? 'Prep' : 'Active') : 'Free'}
                 </span>
               </div>

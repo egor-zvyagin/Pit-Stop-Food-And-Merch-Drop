@@ -16,6 +16,8 @@ export const CreateOrderSchema = z.object({
         quantity: z.number().int().positive('Quantity must be a positive integer'),
         unitPrice: z.number().nonnegative().optional(),
         image: z.string().optional(),
+        // Kitchen option IDs from the catalogue, e.g. ["no-pickles"].
+        options: z.array(z.string().max(40)).max(8).optional(),
       })
     )
     .min(1, 'Order must contain at least one item'),
@@ -25,6 +27,8 @@ export const CreateOrderSchema = z.object({
   promoCode: z.string().optional(),
   isGroupOrder: z.boolean().optional().default(false),
   seatNote: z.string().max(200).optional(),
+  // Accepted for older clients but ignored: the server prices every order
+  // at the race flag it holds, never at one the client claims.
   circuitStatus: z.string().optional(),
 });
 export type CreateOrderInput = z.infer<typeof CreateOrderSchema>;

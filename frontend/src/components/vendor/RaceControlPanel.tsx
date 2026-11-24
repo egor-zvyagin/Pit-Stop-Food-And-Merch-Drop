@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Icon } from '@iconify/react';
+import { Icon } from "@/components/ui/Icon";
 import { CircuitFlag, CircuitState } from '@/lib/types';
 
 interface RaceControlPanelProps {
@@ -141,7 +141,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-neutral-800 pb-3">
         <Icon icon="mdi:flag-checkered" width={20} height={20} className="text-red-500" />
-        <h2 className="font-display font-black text-base uppercase tracking-wider text-white">
+        <h2 className="font-display font-black text-base text-white">
           Race Control
         </h2>
         {activeFlag && (
@@ -153,7 +153,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
 
       {/* Circuit flag buttons */}
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
+        <div className="text-[11px] font-bold text-neutral-500 mb-2">
           Circuit Flag
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -175,7 +175,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
               />
               <span className="uppercase tracking-wide text-xs">{label}</span>
               {activeFlag === flag && (
-                <span className="ml-auto text-[10px] font-black uppercase opacity-80">●</span>
+                <span className="ml-auto text-[10px] font-black opacity-80">●</span>
               )}
             </button>
           ))}
@@ -201,7 +201,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
 
       {/* Merch Drop Buttons */}
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
+        <div className="text-[11px] font-bold text-neutral-500 mb-2">
           Merch Drops
         </div>
         <div className="grid grid-cols-2 gap-2">
@@ -209,7 +209,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
             type="button"
             disabled={restockLoading !== null}
             onClick={() => handleRestock('restock_all')}
-            className="flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-950/30 hover:bg-sky-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-sky-300 disabled:opacity-50 transition-colors"
+            className="flex items-center justify-center gap-2 rounded-xl border border-sky-500/40 bg-sky-950/30 hover:bg-sky-900/50 py-2.5 font-display font-bold text-xs text-sky-300 disabled:opacity-50 transition-colors"
           >
             {restockLoading === 'restock_all' ? (
               <Icon icon="mdi:loading" width={15} height={15} className="animate-spin" />
@@ -223,7 +223,7 @@ export default function RaceControlPanel({ vendorPin }: RaceControlPanelProps) {
             type="button"
             disabled={restockLoading !== null}
             onClick={() => handleRestock('flash_drop')}
-            className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-amber-300 disabled:opacity-50 transition-colors"
+            className="flex items-center justify-center gap-2 rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs text-amber-300 disabled:opacity-50 transition-colors"
           >
             {restockLoading === 'flash_drop' ? (
               <Icon icon="mdi:loading" width={15} height={15} className="animate-spin" />

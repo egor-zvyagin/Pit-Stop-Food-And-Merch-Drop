@@ -1,6 +1,6 @@
 /**
- * Pit Stop Food & Merch Drop - Service Worker
- * Offline resilience for trackside stations at the 2026 Melbourne Grand Prix.
+ * Pit Stop service worker
+ * Keeps the app usable when trackside mobile signal drops.
  * 
  * Provides:
  * - Pre-caching of app shell navigation routes
@@ -9,33 +9,27 @@
  * - Network-first with cache-fallback for navigation pages during trackside signal loss
  */
 
-const CACHE_NAME = 'pitstop-cache-v2';
-
-// Icon data is fetched from these hosts at runtime; cached so icons survive offline.
-const ICON_API_HOSTS = ['api.iconify.design', 'api.simplesvg.com', 'api.unisvg.com'];
+const CACHE_NAME = 'pitstop-cache-v3';
 
 const STATIC_ASSETS = [
   '/',
-  '/order',
+  '/map',
   '/checkout',
   '/collect',
-  '/pass',
   '/vendor',
   '/rewards',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/images/redbull.jpg',
+  '/images/burger.jpg',
   '/images/loaded-fries.jpg',
+  '/images/pizza.jpg',
   '/images/beer.jpg',
+  '/images/energy-can.jpg',
   '/images/water.jpg',
   '/images/cap.jpg',
-  '/images/pizza.jpg',
-  '/images/tee.jpg',
-  '/images/burger.jpg',
+  '/images/crew-tee.jpg',
   '/images/earplugs.jpg',
-  '/images/PIT_STOP.png',
-  '/images/qr_code_figma.png',
 ];
 
 // Install: pre-cache critical app shell and static images
@@ -126,32 +120,6 @@ self.addEventListener('fetch', (event) => {
             headers: { 'Content-Type': 'application/json' },
           });
         }
-      })
-    );
-    return;
-  }
-
-  // Strategy 2b: Icon data from the Iconify API -> Stale-While-Revalidate.
-  // Icons render from cache at once and offline; the cache refreshes in the background.
-  if (ICON_API_HOSTS.includes(url.hostname)) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cachedResponse = await cache.match(request);
-        const fetchPromise = fetch(request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            cache.put(request, networkResponse.clone());
-          }
-          return networkResponse;
-        }).catch(() => null);
-
-        if (cachedResponse) {
-          event.waitUntil(fetchPromise);
-          return cachedResponse;
-        }
-        return (await fetchPromise) || new Response('{}', {
-          status: 503,
-          headers: { 'Content-Type': 'application/json' },
-        });
       })
     );
     return;

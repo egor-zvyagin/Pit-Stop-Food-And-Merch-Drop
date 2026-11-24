@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     if (!ticket) {
       logger.log({ status: 404, error: 'Ticket reference not found' });
       return NextResponse.json(
-        { success: false, error: 'Invalid or expired Australian Grand Prix ticket reference' },
+        { success: false, error: 'Ticket code not recognised' },
         { status: 404 }
       );
     }

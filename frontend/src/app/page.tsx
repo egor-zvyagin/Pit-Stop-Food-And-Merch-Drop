@@ -1,7 +1,5 @@
-
-import HomeContent from "@/components/home/HomeContent";
-
+import MenuScreen from "@/components/menu/MenuScreen";
 
 export default function Home() {
-  return <HomeContent />;
+  return <MenuScreen />;
 }

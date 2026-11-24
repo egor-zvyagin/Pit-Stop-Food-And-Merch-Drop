@@ -286,3 +286,53 @@ describe('Serverless API Integration Test Suite', () => {
     expect(emptyRes.status).toBe(400);
   });
 });
+
+describe('Order options and server-side race flag', () => {
+  it('stores only the kitchen options the catalogue defines for an item', async () => {
+    const req = new Request('http://localhost:3000/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [
+          { itemId: 'apex-burger', quantity: 1, options: ['no-pickles', 'extra-gold-leaf'] },
+          { itemId: 'apex-burger', quantity: 1 },
+        ],
+        stationId: 'M1',
+        ticketCode: 'GP-9014-P',
+      }),
+    });
+
+    const res = await createOrderRoute(req);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.order.items[0].options).toEqual(['No pickles']);
+    expect(data.order.items[1].options).toBeUndefined();
+  });
+
+  it('prices at the flag the server holds, not one the client sends', async () => {
+    const { db } = await import('@/lib/db/client');
+    await db.setCircuitState('RED_FLAG', 'test');
+
+    const req = new Request('http://localhost:3000/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: [{ itemId: 'still-water', quantity: 2 }],
+        stationId: 'M1',
+        ticketCode: 'GP-9014-P',
+        circuitStatus: 'POST_RACE',
+      }),
+    });
+
+    try {
+      const res = await createOrderRoute(req);
+      expect(res.status).toBe(201);
+      const data = await res.json();
+      // Red flag: no discount, so the client's claimed 15% is not applied.
+      expect(data.pricing.dynamicYieldDiscount).toBe(0);
+      expect(data.order.subtotal).toBe(9);
+    } finally {
+      await db.setCircuitState('GREEN_FLAG', 'test');
+    }
+  });
+});

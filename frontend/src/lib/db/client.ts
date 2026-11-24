@@ -50,17 +50,29 @@ export type {
   LockerBayStatus,
 };
 
-// In-Memory Fallback State
-const inMemoryStore = {
-  items: new Map<string, CatalogItem>(),
-  orders: new Map<string, OrderRecord>(),
-  stations: new Map<string, StationRecord>(),
-  tickets: new Map<string, TicketProfile>(),
-  ticketHistory: new Map<string, RewardsHistoryItem[]>(),
-  awardedOrders: new Set<string>(),
-  circuitState: null as CircuitState | null,
-  initialized: false,
+// In-memory state for USE_LOCAL_STORAGE=true.
+//
+// Next.js bundles each API route separately, so a plain module-level object
+// would give every route its own copy: an order created by POST /api/orders
+// would be missing from /api/orders/[id]/status. Holding the store on
+// globalThis gives all routes in one server process the same data.
+function createInMemoryStore() {
+  return {
+    items: new Map<string, CatalogItem>(),
+    orders: new Map<string, OrderRecord>(),
+    stations: new Map<string, StationRecord>(),
+    tickets: new Map<string, TicketProfile>(),
+    ticketHistory: new Map<string, RewardsHistoryItem[]>(),
+    awardedOrders: new Set<string>(),
+    circuitState: null as CircuitState | null,
+    initialized: false,
+  };
+}
+
+const storeHolder = globalThis as typeof globalThis & {
+  __pitstopInMemoryStore?: ReturnType<typeof createInMemoryStore>;
 };
+const inMemoryStore = (storeHolder.__pitstopInMemoryStore ??= createInMemoryStore());
 
 // --- Circuit Flag Rules ---
 export const CIRCUIT_FLAG_RULES: Record<CircuitFlag, Omit<CircuitState, 'flag' | 'updatedAt' | 'updatedBy'>> = {
@@ -140,7 +152,7 @@ function initInMemoryDefaults() {
   inMemoryStore.tickets.set('GP-9014-P', {
     ticketCode: 'GP-9014-P',
     verified: true,
-    holderName: 'Grand Prix Fan',
+    holderName: 'Race fan',
     ticketType: '3-Day General Admission',
     viewingArea: {
       grandstand: 'Brabham Grandstand',
@@ -721,7 +733,7 @@ export const db = {
       const generated: TicketProfile = {
         ticketCode: clean,
         verified: true,
-        holderName: 'Grand Prix Fan',
+        holderName: 'Race fan',
         ticketType: 'General Admission',
         viewingArea: {
           grandstand: 'Albert Park Green',
@@ -744,7 +756,7 @@ export const db = {
   async getRewardsState(ticketCode: string): Promise<RewardsState> {
     const ticket = await this.getTicket(ticketCode);
     const points = ticket?.loyaltyPoints ?? 500;
-    const holderName = ticket?.holderName ?? 'Grand Prix Fan';
+    const holderName = ticket?.holderName ?? 'Race fan';
 
     // Tier calculation
     let tier = 'Race Fan';
@@ -801,7 +813,7 @@ export const db = {
       {
         id: 'HIST-INIT',
         type: 'EARNED',
-        description: 'Grand Prix Welcome Bonus Points',
+        description: 'Welcome bonus',
         points: points > 500 ? 500 : points,
         timestamp: '2026-03-14T08:00:00Z',
       },

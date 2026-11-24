@@ -5,29 +5,25 @@ import { DemoProvider } from "@/components/DemoProvider";
 import AppShell from "@/components/layout/AppShell";
 import OrderProvider from "@/components/order/OrderProvider";
 import RewardsProvider from "@/components/reward/RewardsProvider";
-import { CartProvider } from "@/context/CartContext";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 // Fonts are bundled with the app (see ./fonts/OFL-LICENSES.txt), so the build
 // needs no network access and the app shell renders correctly offline.
-const inter = localFont({
-  src: "./fonts/Inter-latin-variable.woff2",
-  variable: "--font-inter",
+// Archivo has a width axis: the condensed cut sets prices, codes and
+// headings, the normal width sets body text.
+const archivo = localFont({
+  src: "./fonts/Archivo-latin-variable.woff2",
+  variable: "--font-archivo",
   weight: "100 900",
+  style: "normal",
   display: "swap",
-});
-
-const bigShoulders = localFont({
-  src: "./fonts/BigShouldersDisplay-latin-variable.woff2",
-  variable: "--font-big-shoulders",
-  weight: "100 900",
-  display: "swap",
+  declarations: [{ prop: "font-stretch", value: "62% 125%" }],
 });
 
 // Page Metadata
 export const metadata: Metadata = {
-  title: "Pit Stop Food & Merch Drop",
-  description: "Order ahead. Pick up fast. Get back to the action.",
+  title: "Pit Stop: trackside food and merch",
+  description: "Order food and merch from your seat, collect it from a locker, and get back to the race.",
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -44,7 +40,7 @@ export const viewport: Viewport = {
   width: "device-width",
   // Loading page to 100% zoom 
   initialScale: 1,
-  themeColor: "#E10600",
+  themeColor: "#1d2125",
 };
 
 export default function RootLayout({
@@ -55,21 +51,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${bigShoulders.variable} antialiased`}
+        className={`${archivo.variable} antialiased`}
       >
         <ServiceWorkerRegistration />
         {/* Makes Demo Mode available across all pages */}
         <DemoProvider>
-          {/* Keeps selected Pit Stop and cart available across pages */}
-          <CartProvider>
-            <OrderProvider>
-              <RewardsProvider>
-                <AppShell>
-                  {children}
-                </AppShell>
-              </RewardsProvider>
-            </OrderProvider>
-          </CartProvider>
+          {/* Ticket, cart, pickup pod and the active order */}
+          <OrderProvider>
+            <RewardsProvider>
+              <AppShell>{children}</AppShell>
+            </RewardsProvider>
+          </OrderProvider>
         </DemoProvider>
       </body>
     </html>
