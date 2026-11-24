@@ -235,7 +235,7 @@ function createInProcessClient(): SmokeClient {
     isHttp: false,
     baseUrl: 'in-process',
     async getCircuitStatus() {
-      const res = await getCircuitStatusRoute();
+      const res = await getCircuitStatusRoute(new Request('http://localhost/api/circuit/status'));
       return { status: res.status, data: await res.json() };
     },
     async getPublicKey() {

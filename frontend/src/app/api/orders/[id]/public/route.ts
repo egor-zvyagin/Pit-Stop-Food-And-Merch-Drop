@@ -19,7 +19,7 @@ export async function GET(
   const logger = createRequestLogger({ requestId, route: `/api/orders/${id}/public`, method: 'GET' });
 
   // Rate Limiting
-  const limit = rateLimiter.consume();
+  const limit = rateLimiter.consume(request);
   if (!limit.allowed && limit.response) {
     logger.log({ status: 429, error: 'Rate limit exceeded' });
     return limit.response;

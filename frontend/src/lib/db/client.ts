@@ -65,6 +65,8 @@ function createInMemoryStore() {
     tickets: new Map<string, TicketProfile>(),
     ticketHistory: new Map<string, RewardsHistoryItem[]>(),
     awardedOrders: new Set<string>(),
+    /** Saved responses for idempotency keys. Mirrors IDEMPOTENCY# items. */
+    idempotency: new Map<string, { statusCode: number; payload: Record<string, unknown> }>(),
     /** Locker claims: "<stationId>#<bay>" -> orderId. Mirrors LOCKER# items. */
     lockerClaims: new Map<string, string>(),
     circuitState: null as CircuitState | null,
@@ -932,39 +934,94 @@ export const db = {
       return { success: false, pointsAwarded: 0, newTotal: 0 };
     }
 
-    // Idempotency check: don't award twice for the same orderId
-    if (inMemoryStore.awardedOrders.has(dedupeKey)) {
-      return {
-        success: true,
-        pointsAwarded: 0,
-        newTotal: ticket.loyaltyPoints,
-      };
+    const tierFor = (total: number) =>
+      total >= 2000 ? 'VIP Fan' : total >= 1000 ? 'Pit Lane Insider' : ticket.loyaltyTier;
+
+    const client = getDocClient();
+    if (client) {
+      // Make sure the profile item exists; general-admission tickets are
+      // generated on first use and not stored until now.
+      try {
+        await client.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: { PK: `TICKET#${cleanTicket}`, SK: 'PROFILE', ...ticket },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          })
+        );
+      } catch (err) {
+        if (!(err instanceof Error && err.name === 'ConditionalCheckFailedException')) {
+          dbFailure('awardTicketPoints', err);
+        }
+      }
+
+      // One marker per order and an atomic ADD, in one transaction: two
+      // servers handling the same pickup can never award the points twice.
+      try {
+        await client.send(
+          new TransactWriteCommand({
+            TransactItems: [
+              {
+                Put: {
+                  TableName: TABLE_NAME,
+                  Item: {
+                    PK: `AWARD#${dedupeKey}`,
+                    SK: 'POINTS',
+                    points,
+                    ttl: Math.floor(Date.now() / 1000) + 30 * 86400,
+                  },
+                  ConditionExpression: 'attribute_not_exists(PK)',
+                },
+              },
+              {
+                Update: {
+                  TableName: TABLE_NAME,
+                  Key: { PK: `TICKET#${cleanTicket}`, SK: 'PROFILE' },
+                  UpdateExpression: 'ADD loyaltyPoints :p',
+                  ExpressionAttributeValues: { ':p': points },
+                },
+              },
+            ],
+          })
+        );
+      } catch (err) {
+        const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+        if (err instanceof Error && err.name === 'TransactionCanceledException' && reasons?.[0]?.Code === 'ConditionalCheckFailed') {
+          const current = await this.getTicket(cleanTicket);
+          return { success: true, pointsAwarded: 0, newTotal: current?.loyaltyPoints ?? ticket.loyaltyPoints };
+        }
+        dbFailure('awardTicketPoints', err);
+      }
+
+      const updated = await this.getTicket(cleanTicket);
+      const newTotal = updated?.loyaltyPoints ?? ticket.loyaltyPoints + points;
+      const tier = tierFor(newTotal);
+      if (tier !== updated?.loyaltyTier) {
+        try {
+          await client.send(
+            new UpdateCommand({
+              TableName: TABLE_NAME,
+              Key: { PK: `TICKET#${cleanTicket}`, SK: 'PROFILE' },
+              UpdateExpression: 'SET loyaltyTier = :t',
+              ExpressionAttributeValues: { ':t': tier },
+            })
+          );
+        } catch (err) {
+          dbFailure('awardTicketPoints', err);
+        }
+      }
+      this.recordEarned(cleanTicket, points, orderId);
+      return { success: true, pointsAwarded: points, newTotal };
     }
 
+    // In-memory store
+    if (inMemoryStore.awardedOrders.has(dedupeKey)) {
+      return { success: true, pointsAwarded: 0, newTotal: ticket.loyaltyPoints };
+    }
     inMemoryStore.awardedOrders.add(dedupeKey);
     ticket.loyaltyPoints += points;
-
-    // Tier advancement
-    if (ticket.loyaltyPoints >= 2000) {
-      ticket.loyaltyTier = 'VIP Fan';
-    } else if (ticket.loyaltyPoints >= 1000) {
-      ticket.loyaltyTier = 'Pit Lane Insider';
-    }
-
-    // Record history
-    const historyEntry: RewardsHistoryItem = {
-      id: `HIST-${Date.now()}`,
-      type: 'EARNED',
-      description: `Order ${orderId} Concession Points`,
-      points,
-      timestamp: new Date().toISOString(),
-      orderId,
-    };
-
-    const currentHistory = inMemoryStore.ticketHistory.get(cleanTicket) || [];
-    currentHistory.unshift(historyEntry);
-    inMemoryStore.ticketHistory.set(cleanTicket, currentHistory);
-
+    ticket.loyaltyTier = tierFor(ticket.loyaltyPoints);
+    this.recordEarned(cleanTicket, points, orderId);
     await this.saveTicket(ticket);
 
     return {
@@ -972,6 +1029,82 @@ export const db = {
       pointsAwarded: points,
       newTotal: ticket.loyaltyPoints,
     };
+  },
+
+  /** Rewards history is kept per server instance (see README known limits). */
+  recordEarned(ticketCode: string, points: number, orderId: string) {
+    const entry: RewardsHistoryItem = {
+      id: `HIST-${Date.now()}`,
+      type: 'EARNED',
+      description: `Order ${orderId} Concession Points`,
+      points,
+      timestamp: new Date().toISOString(),
+      orderId,
+    };
+    const history = inMemoryStore.ticketHistory.get(ticketCode) || [];
+    history.unshift(entry);
+    inMemoryStore.ticketHistory.set(ticketCode, history);
+  },
+
+  // --- IDEMPOTENCY KEYS ---
+  /** The response saved for an idempotency key, if this request was seen before. */
+  async getIdempotentResponse(
+    scope: string,
+    key: string
+  ): Promise<{ statusCode: number; payload: Record<string, unknown> } | undefined> {
+    const id = `${scope}#${key}`;
+    const client = getDocClient();
+    if (client) {
+      try {
+        const res = await client.send(new GetCommand({ TableName: TABLE_NAME, Key: { PK: `IDEMPOTENCY#${id}`, SK: 'RESPONSE' } }));
+        if (!res.Item) return undefined;
+        return { statusCode: Number(res.Item.statusCode), payload: res.Item.payload as Record<string, unknown> };
+      } catch (err) {
+        dbFailure('getIdempotentResponse', err);
+      }
+    }
+    return inMemoryStore.idempotency.get(id);
+  },
+
+  /**
+   * Saves the response for an idempotency key for 24 hours. If another
+   * request saved one first, that response is returned instead, so every
+   * retry gets the same answer.
+   */
+  async saveIdempotentResponse(
+    scope: string,
+    key: string,
+    response: { statusCode: number; payload: Record<string, unknown> }
+  ): Promise<{ statusCode: number; payload: Record<string, unknown> }> {
+    const id = `${scope}#${key}`;
+    const client = getDocClient();
+    if (client) {
+      try {
+        await client.send(
+          new PutCommand({
+            TableName: TABLE_NAME,
+            Item: {
+              PK: `IDEMPOTENCY#${id}`,
+              SK: 'RESPONSE',
+              statusCode: response.statusCode,
+              payload: response.payload,
+              ttl: Math.floor(Date.now() / 1000) + 86400,
+            },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          })
+        );
+        return response;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'ConditionalCheckFailedException') {
+          return (await this.getIdempotentResponse(scope, key)) ?? response;
+        }
+        dbFailure('saveIdempotentResponse', err);
+      }
+    }
+    const existing = inMemoryStore.idempotency.get(id);
+    if (existing) return existing;
+    inMemoryStore.idempotency.set(id, response);
+    return response;
   },
 
   // --- ATOMIC ORDER CREATION (TransactWriteItems) ---

@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   // 2. Rate Limiting
-  const limit = rateLimiter.consume();
+  const limit = rateLimiter.consume(request);
   if (!limit.allowed && limit.response) {
     logger.log({ status: 429, error: 'Rate limit exceeded' });
     return limit.response;

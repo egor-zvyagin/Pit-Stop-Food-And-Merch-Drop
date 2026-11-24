@@ -11,15 +11,13 @@ export const dynamic = 'force-dynamic';
 
 const rateLimiter = createRateLimiter('orders');
 
-// In-memory idempotency cache for checkout operations
-const idempotencyStore = new Map<string, { statusCode: number; payload: Record<string, unknown> }>();
 
 export async function POST(request: Request) {
   const requestId = generateRequestId();
   const logger = createRequestLogger({ requestId, route: '/api/payment/checkout', method: 'POST' });
 
   // Rate Limiting
-  const limit = rateLimiter.consume();
+  const limit = rateLimiter.consume(request);
   if (!limit.allowed && limit.response) {
     logger.log({ status: 429, error: 'Rate limit exceeded' });
     return limit.response;
@@ -88,10 +86,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (idempotencyKey && idempotencyStore.has(idempotencyKey)) {
-      const cached = idempotencyStore.get(idempotencyKey)!;
-      logger.log({ status: cached.statusCode, dbOp: 'idempotent-replay' });
-      return NextResponse.json(cached.payload, { status: cached.statusCode });
+    // A retried request with the same key gets the first answer back. Keys
+    // are stored in the database, scoped to the order, so every server
+    // instance sees them.
+    if (idempotencyKey) {
+      const cached = await db.getIdempotentResponse(`PAYMENT#${order.orderId}`, idempotencyKey);
+      if (cached) {
+        logger.log({ status: cached.statusCode, dbOp: 'idempotent-replay' });
+        return NextResponse.json(cached.payload, { status: cached.statusCode });
+      }
     }
 
     // 3. Update order payment status to PAID
@@ -116,10 +119,12 @@ export async function POST(request: Request) {
     };
 
     if (idempotencyKey) {
-      idempotencyStore.set(idempotencyKey, {
+      const saved = await db.saveIdempotentResponse(`PAYMENT#${order.orderId}`, idempotencyKey, {
         statusCode: 200,
         payload: responsePayload,
       });
+      logger.log({ status: saved.statusCode, dbOp: 'updateOrderPaymentStatus' });
+      return NextResponse.json(saved.payload, { status: saved.statusCode });
     }
 
     logger.log({ status: 200, dbOp: 'updateOrderPaymentStatus' });

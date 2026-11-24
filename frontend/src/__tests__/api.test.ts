@@ -224,7 +224,7 @@ describe('Serverless API Integration Test Suite', () => {
   });
 
   it('GET /api/inventory returns 200 with catalog items', async () => {
-    const res = await getInventoryRoute();
+    const res = await getInventoryRoute(new Request("http://localhost/api/inventory"));
     expect(res.status).toBe(200);
 
     const body = await res.json();
