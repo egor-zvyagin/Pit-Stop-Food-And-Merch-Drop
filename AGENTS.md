@@ -3,12 +3,31 @@
 These rules take precedence over the generic AWS guidance below.
 
 - **Verify before you commit.** `bash scripts/verify.sh` is the gate (type check, lint, unit tests, production build, e2e, Terraform fmt/validate). CI runs the same script.
-- **Never touch live AWS from a coding session.** No `terraform apply`, no `npm run seed` or `npm run test:live` against the deployed table, no Amplify deploys, unless the repository owner asks for that specific action.
+- **Live AWS goes through GitHub, not a coding session.** Coding sessions hold no AWS keys. Changes reach AWS only through the workflows in `.github/workflows`, which sign in with GitHub OIDC. What an agent may do there on its own is listed below.
 - **No secrets in the repository.** No PINs, keys or tokens in code, tests, docs or commit messages. The app has no default PIN and no default signing key on purpose: a missing secret must fail closed.
 - **No silent fallbacks.** With DynamoDB configured, a failed call raises `DatabaseUnavailableError`. The in-memory store is only for `USE_LOCAL_STORAGE=true`.
 - **Order secrets.** An order ID or ticket code must never return a collection PIN, QR payload or signature. Use the helpers in `frontend/src/lib/auth/orderAccess.ts`.
 - **Say what is simulated.** Payment, ticket verification and Demo Mode are simulations. Keep the README section "What is real and what is simulated" true when behaviour changes.
 - **Work on a branch and open a pull request.** Do not push to `main` directly.
+
+## What agents may do without asking
+
+Standing permissions from the repository owner. Anything not listed needs the owner to ask for that specific action.
+
+- Create branches, commit, push them, and open pull requests. Turn on auto-merge for their own pull requests; GitHub merges only after the CI check passes, and Amplify deploys `main`.
+- Fix failing CI on their own pull requests.
+- Run the "Deploy Infrastructure (Terraform)" workflow: first with `auto_approve` off, read the plan, then with `auto_approve` on, but only if the plan:
+  - destroys or replaces nothing (`0 to destroy`), and
+  - changes no IAM resources and no DynamoDB setting that could lose data.
+- After an apply, check the result (workflow logs, CloudWatch) and report it.
+
+## Always ask the owner first
+
+- Any plan that destroys or replaces a resource, or touches IAM.
+- `npm run seed`, `npm run test:live`, deleting data, changing secrets or environment variables.
+- Pushing to `main`, force-pushing, or merging without passing checks.
+
+`.claude/settings.json` blocks the riskiest of these commands in every Claude Code session on this repository, and `infra/terraform/dynamodb.tf` protects the table from deletion.
 
 Layout: `frontend/` (Next.js app, API routes in `src/app/api`, tests in `src/__tests__` and `e2e/`), `infra/terraform/` (DynamoDB, IAM, OIDC, monitoring), `scripts/verify.sh`, `docs/history/` (superseded implementation plans).
 

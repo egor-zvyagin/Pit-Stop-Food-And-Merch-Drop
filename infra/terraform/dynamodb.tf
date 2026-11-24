@@ -57,6 +57,15 @@ resource "aws_dynamodb_table" "pitstop_table" {
     enabled = var.enable_point_in_time_recovery
   }
 
+  # The table holds every order and all stock levels. Two guards against
+  # losing it: AWS refuses a delete while deletion protection is on, and
+  # Terraform refuses any plan that would destroy or replace the table.
+  deletion_protection_enabled = true
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
   tags = {
     Name = var.table_name
   }

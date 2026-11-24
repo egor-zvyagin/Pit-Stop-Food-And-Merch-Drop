@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(terraform destroy *)",
+      "Bash(terraform destroy)",
+      "Bash(npm run seed *)",
+      "Bash(npm run seed)",
+      "Bash(npm run test:live *)",
+      "Bash(npm run test:live)",
+      "Bash(git push origin main *)",
+      "Bash(git push origin main)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ]
+  }
+}
