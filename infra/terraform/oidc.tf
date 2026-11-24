@@ -24,10 +24,13 @@ data "aws_iam_policy_document" "github_actions_assume_role" {
       identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
     }
 
+    # GitHub's token names the repository with its immutable owner and
+    # repository IDs (owner@id/repo@id), so a renamed or re-created repo
+    # cannot take over this role. Only runs on main may assume it.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:egor-zvyagin/Pit-Stop-Food-And-Merch-Drop:ref:refs/heads/main"]
+      values   = ["repo:egor-zvyagin@163797770/Pit-Stop-Food-And-Merch-Drop@1459252722:ref:refs/heads/main"]
     }
 
     condition {
