@@ -10,6 +10,10 @@ import { createRateLimiter } from '@/lib/validation/rateLimit';
 import { createRequestLogger, generateRequestId } from '@/lib/logger';
 import { validateVendorAuth } from '@/lib/auth/vendorAuth';
 
+// Always run on request: these responses are live data and must never be
+// frozen into the build.
+export const dynamic = 'force-dynamic';
+
 const rateLimiter = createRateLimiter('orders');
 
 /**

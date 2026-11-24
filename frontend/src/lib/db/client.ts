@@ -189,6 +189,30 @@ function initInMemoryDefaults() {
 const TABLE_NAME = process.env.DYNAMODB_TABLE_NAME || 'pitstop_data';
 const REGION = process.env.AWS_REGION || 'ap-southeast-2';
 
+/**
+ * Raised when DynamoDB is the configured store and a call to it fails.
+ *
+ * The in-memory store below exists for local development and tests
+ * (USE_LOCAL_STORAGE=true). It is never a fallback for a failing database:
+ * answering with made-up data, or "creating" an order that only exists in
+ * one server process, is worse than an honest error.
+ */
+export class DatabaseUnavailableError extends Error {
+  readonly operation: string;
+
+  constructor(operation: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.name : 'unknown error';
+    super(`Database unavailable during ${operation} (${detail})`);
+    this.name = 'DatabaseUnavailableError';
+    this.operation = operation;
+  }
+}
+
+function dbFailure(operation: string, err: unknown): never {
+  console.error(`DynamoDB ${operation} failed:`, err);
+  throw new DatabaseUnavailableError(operation, err);
+}
+
 let cachedDocClient: DynamoDBDocumentClient | null = null;
 let clientInitialized = false;
 
@@ -209,10 +233,7 @@ export function getDocClient(): DynamoDBDocumentClient | null {
     clientInitialized = true;
     return cachedDocClient;
   } catch (err) {
-    console.warn('Failed to initialize AWS DynamoDB client, falling back to local store:', err);
-    clientInitialized = true;
-    cachedDocClient = null;
-    return null;
+    return dbFailure('client initialisation', err);
   }
 }
 
@@ -313,7 +334,7 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB saveItem error:', err);
+        dbFailure('saveItem', err);
       }
     }
     inMemoryStore.items.set(fullItem.id, fullItem);
@@ -337,7 +358,7 @@ export const db = {
           return result.Items as CatalogItem[];
         }
       } catch (err) {
-        console.warn('DynamoDB getItems error, using fallback:', err);
+        dbFailure('getItems', err);
       }
     }
     return Array.from(inMemoryStore.items.values());
@@ -355,7 +376,7 @@ export const db = {
         );
         if (result.Item) return result.Item as CatalogItem;
       } catch (err) {
-        console.warn('DynamoDB getItemById error, using fallback:', err);
+        dbFailure('getItemById', err);
       }
     }
     return inMemoryStore.items.get(id);
@@ -392,7 +413,7 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB createOrder error, storing locally:', err);
+        dbFailure('createOrder', err);
       }
     }
     inMemoryStore.orders.set(fullOrder.orderId, fullOrder);
@@ -401,10 +422,10 @@ export const db = {
 
   async getOrderById(orderId: string): Promise<OrderRecord | undefined> {
     const cleanId = orderId.toUpperCase();
-    if (inMemoryStore.orders.has(cleanId)) {
-      return inMemoryStore.orders.get(cleanId);
-    }
 
+    // With DynamoDB configured it is the only source of truth: a copy held in
+    // this server process goes stale as soon as another instance updates the
+    // order.
     const client = getDocClient();
     if (client) {
       try {
@@ -412,26 +433,31 @@ export const db = {
           new GetCommand({
             TableName: TABLE_NAME,
             Key: { PK: `ORDER#${cleanId}`, SK: 'METADATA' },
+            ConsistentRead: true,
           })
         );
-        if (result.Item) return result.Item as OrderRecord;
+        return result.Item as OrderRecord | undefined;
       } catch (err) {
-        console.warn('DynamoDB getOrderById error, using fallback:', err);
+        dbFailure('getOrderById', err);
       }
     }
     return inMemoryStore.orders.get(cleanId);
   },
 
   async getOrderByPin(pinCode: string): Promise<OrderRecord | undefined> {
-    // 1. Fast in-memory lookup
-    for (const order of Array.from(inMemoryStore.orders.values())) {
-      if (order.pinCode === pinCode) {
-        return order;
+    const client = getDocClient();
+
+    // Local mode: search the in-memory store
+    if (!client) {
+      for (const order of Array.from(inMemoryStore.orders.values())) {
+        if (order.pinCode === pinCode) {
+          return order;
+        }
       }
+      return undefined;
     }
 
-    // 2. DynamoDB GSI2 Query (GSI2PK = PIN#<pinCode>) with scan fallback
-    const client = getDocClient();
+    // DynamoDB GSI2 Query (GSI2PK = PIN#<pinCode>) with scan fallback
     if (client) {
       try {
         const result = await client.send(
@@ -464,7 +490,7 @@ export const db = {
             return scanResult.Items[0] as OrderRecord;
           }
         } catch (scanErr) {
-          console.warn('DynamoDB getOrderByPin scan error:', scanErr);
+          dbFailure('getOrderByPin', scanErr);
         }
       }
     }
@@ -501,11 +527,12 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB updateOrderStatus error:', err);
+        dbFailure('updateOrderStatus', err);
       }
     }
 
-    return existing;
+    // In DynamoDB mode return the stored record, not this process's copy
+    return client ? this.getOrderById(cleanId) : existing;
   },
 
   async updateOrderPaymentStatus(
@@ -537,11 +564,12 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB updateOrderPaymentStatus error:', err);
+        dbFailure('updateOrderPaymentStatus', err);
       }
     }
 
-    return existing;
+    // In DynamoDB mode return the stored record, not this process's copy
+    return client ? this.getOrderById(cleanId) : existing;
   },
 
   async getAllOrders(): Promise<OrderRecord[]> {
@@ -558,11 +586,9 @@ export const db = {
             },
           })
         );
-        if (result.Items && result.Items.length > 0) {
-          return result.Items as OrderRecord[];
-        }
+        return (result.Items ?? []) as OrderRecord[];
       } catch (err) {
-        console.warn('DynamoDB getAllOrders error, using fallback:', err);
+        dbFailure('getAllOrders', err);
       }
     }
     return Array.from(inMemoryStore.orders.values());
@@ -585,11 +611,9 @@ export const db = {
               },
             })
           );
-          if (result.Items && result.Items.length > 0) {
-            return result.Items as OrderRecord[];
-          }
+          return (result.Items ?? []) as OrderRecord[];
         } catch (err) {
-          console.warn('GSI1 query error, filtering in-memory/scan:', err);
+          dbFailure('getOrders', err);
         }
       }
 
@@ -597,7 +621,8 @@ export const db = {
       const local = Array.from(inMemoryStore.orders.values()).filter(
         (o) => o.ticketCode.toUpperCase() === cleanTicket
       );
-      if (local.length > 0) return local;
+      // A ticket with no orders has no orders; it must not get everyone's.
+      return local;
     }
 
     return this.getAllOrders();
@@ -619,7 +644,7 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB saveStation error:', err);
+        dbFailure('saveStation', err);
       }
     }
     inMemoryStore.stations.set(station.id, station);
@@ -643,7 +668,7 @@ export const db = {
           return result.Items as StationRecord[];
         }
       } catch (err) {
-        console.warn('DynamoDB getStations error, using fallback:', err);
+        dbFailure('getStations', err);
       }
     }
     return Array.from(inMemoryStore.stations.values());
@@ -665,7 +690,7 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB saveTicket error:', err);
+        dbFailure('saveTicket', err);
       }
     }
     inMemoryStore.tickets.set(ticket.ticketCode, ticket);
@@ -684,7 +709,7 @@ export const db = {
         );
         if (result.Item) return result.Item as TicketProfile;
       } catch (err) {
-        console.warn('DynamoDB getTicket error, using fallback:', err);
+        dbFailure('getTicket', err);
       }
     }
     if (inMemoryStore.tickets.has(clean)) {
@@ -1002,8 +1027,8 @@ export const db = {
           }
           throw new InsufficientStockError(availableStock);
         }
-        // For other DynamoDB errors fall back to in-memory creation
-        console.warn('DynamoDB createOrderAtomic error, falling back to in-memory:', err);
+        // Any other DynamoDB error: the order was not stored, so say so.
+        dbFailure('createOrderAtomic', err);
       }
     }
 
@@ -1115,7 +1140,7 @@ export const db = {
           return result.Item as CircuitState;
         }
       } catch (err) {
-        console.warn('DynamoDB getCircuitState error, using fallback:', err);
+        dbFailure('getCircuitState', err);
       }
     }
 
@@ -1165,7 +1190,7 @@ export const db = {
           })
         );
       } catch (err) {
-        console.warn('DynamoDB setCircuitState error:', err);
+        dbFailure('setCircuitState', err);
       }
     }
 
@@ -1261,11 +1286,9 @@ export const db = {
             ScanIndexForward: false, // newest first
           })
         );
-        if (result.Items && result.Items.length > 0) {
-          return result.Items as OrderRecord[];
-        }
+        return (result.Items ?? []) as OrderRecord[];
       } catch (err) {
-        console.warn('GSI1 getOrdersByTicket error, using in-memory fallback:', err);
+        dbFailure('getOrdersByTicket', err);
       }
     }
 

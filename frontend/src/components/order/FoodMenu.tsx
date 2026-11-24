@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { CATALOG_ITEMS } from "@/data/catalog";
+import { useLiveCatalog } from "@/lib/useLiveCatalog";
 import MenuCard from "@/components/order/MenuCard";
 
 export default function FoodMenu() {
+  const catalog = useLiveCatalog();
   const foodItems = useMemo(() => {
-    return CATALOG_ITEMS.filter((item) => item.category === "food");
-  }, []);
+    return catalog.filter((item) => item.category === "food");
+  }, [catalog]);
 
   return (
     <div className="space-y-3">

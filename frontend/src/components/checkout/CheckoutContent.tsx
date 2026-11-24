@@ -51,6 +51,7 @@ export default function CheckoutContent() {
 
     // 409 conflict recovery
     const [stockConflicts, setStockConflicts] = useState<StockConflictItem[]>([]);
+    const [orderError, setOrderError] = useState<string | null>(null);
 
     const {
         selectedPitStop,
@@ -113,6 +114,7 @@ export default function CheckoutContent() {
 
     async function handlePlaceOrder() {
         if (!selectedPitStopId || totalItems === 0) return;
+        setOrderError(null);
 
         try {
             const itemsToOrder = Object.entries(quantities)
@@ -158,9 +160,9 @@ export default function CheckoutContent() {
                 return;
             }
 
-            const data = await res.json();
+            const data = await res.json().catch(() => null);
 
-            if (data.success && data.order) {
+            if (res.ok && data?.success && data.order) {
                 placeOrder({
                     totalPaid: data.order.total,
                     rewardPoints: data.order.loyaltyPointsEarned,
@@ -177,11 +179,26 @@ export default function CheckoutContent() {
                 router.push("/collect");
                 return;
             }
+
+            // The server answered but did not create the order. Say so: never
+            // show a pass for an order that does not exist.
+            setOrderError(
+                typeof data?.error === "string" && res.status < 500
+                    ? data.error
+                    : "We could not place your order. Please try again in a moment."
+            );
+            return;
         } catch (err) {
-            console.warn("API order creation error, using fallback:", err);
+            // No answer from the server at all, for example no connection.
+            if (!demoMode) {
+                setOrderError("You appear to be offline. Reconnect and try again.");
+                return;
+            }
+            console.warn("Order API unreachable; continuing with a local Demo Mode order:", err);
         }
 
-        // Local fallback
+        // Demo Mode only: a local, simulated order so the flow can be shown
+        // without a connection. It never reaches the kitchen.
         const order = placeOrder({
             totalPaid: liveTotal,
             rewardPoints,
@@ -226,6 +243,19 @@ export default function CheckoutContent() {
 
                 {/* Live Circuit Banner */}
                 <CircuitFlagBanner compact onStateChange={handleCircuitStateChange} />
+
+                {/* Order could not be placed */}
+                {orderError && (
+                    <div role="alert" className="rounded-xl border-2 border-red-500 bg-red-950/50 px-4 py-3">
+                        <div className="flex items-center gap-2 mb-1">
+                            <Icon icon="ph:warning-fill" width={20} height={20} className="text-red-400 shrink-0" />
+                            <span className="font-display font-black text-[13px] text-red-300 uppercase tracking-wider">
+                                Order not placed
+                            </span>
+                        </div>
+                        <p className="text-[12px] text-red-200">{orderError}</p>
+                    </div>
+                )}
 
                 {/* 409 Stock Conflict Alert */}
                 {stockConflicts.length > 0 && (

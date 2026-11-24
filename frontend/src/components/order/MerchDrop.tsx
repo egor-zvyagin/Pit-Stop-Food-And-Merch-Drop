@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { CATALOG_ITEMS } from "@/data/catalog";
+import { useLiveCatalog } from "@/lib/useLiveCatalog";
 import MenuCard from "@/components/order/MenuCard";
 
 export default function MerchDrop() {
+  const catalog = useLiveCatalog();
   const merchItems = useMemo(() => {
-    return CATALOG_ITEMS.filter((item) => item.category === "merch");
-  }, []);
+    return catalog.filter((item) => item.category === "merch");
+  }, [catalog]);
 
   return (
     <div className="space-y-3">

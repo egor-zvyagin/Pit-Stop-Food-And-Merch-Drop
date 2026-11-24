@@ -39,6 +39,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     // The app has no default PIN, so the test server is given one explicitly.
-    env: { VENDOR_ACCESS_PIN: E2E_VENDOR_PIN },
+    // It also runs on the in-memory store, so e2e never touches a real table.
+    env: { VENDOR_ACCESS_PIN: E2E_VENDOR_PIN, USE_LOCAL_STORAGE: 'true' },
   },
 });
