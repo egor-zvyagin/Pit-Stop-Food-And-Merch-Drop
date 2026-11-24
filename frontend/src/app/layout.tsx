@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { DemoProvider } from "@/components/DemoProvider";
-import AppShell from "@/components/AppShell";
+import AppShell from "@/components/layout/AppShell";
 import OrderProvider from "@/components/order/OrderProvider";
 import RewardsProvider from "@/components/reward/RewardsProvider";
 import { CartProvider } from "@/context/CartContext";

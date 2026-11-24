@@ -1,3 +1,17 @@
+# Project rules (Pit Stop)
+
+These rules take precedence over the generic AWS guidance below.
+
+- **Verify before you commit.** `bash scripts/verify.sh` is the gate (type check, lint, unit tests, production build, e2e, Terraform fmt/validate). CI runs the same script.
+- **Never touch live AWS from a coding session.** No `terraform apply`, no `npm run seed` or `npm run test:live` against the deployed table, no Amplify deploys, unless the repository owner asks for that specific action.
+- **No secrets in the repository.** No PINs, keys or tokens in code, tests, docs or commit messages. The app has no default PIN and no default signing key on purpose: a missing secret must fail closed.
+- **No silent fallbacks.** With DynamoDB configured, a failed call raises `DatabaseUnavailableError`. The in-memory store is only for `USE_LOCAL_STORAGE=true`.
+- **Order secrets.** An order ID or ticket code must never return a collection PIN, QR payload or signature. Use the helpers in `frontend/src/lib/auth/orderAccess.ts`.
+- **Say what is simulated.** Payment, ticket verification and Demo Mode are simulations. Keep the README section "What is real and what is simulated" true when behaviour changes.
+- **Work on a branch and open a pull request.** Do not push to `main` directly.
+
+Layout: `frontend/` (Next.js app, API routes in `src/app/api`, tests in `src/__tests__` and `e2e/`), `infra/terraform/` (DynamoDB, IAM, OIDC, monitoring), `scripts/verify.sh`, `docs/history/` (superseded implementation plans).
+
 <!-- BEGIN AWS Agent Toolkit rules -->
 # AWS Guidance
 

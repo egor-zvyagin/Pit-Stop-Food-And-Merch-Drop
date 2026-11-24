@@ -1,7 +1,7 @@
 # AWS Deployment Guide: Pit Stop Platform (v3.0 Production Platform)
 
 **Target Environment:** AWS Asia Pacific (Sydney) - `ap-southeast-2`  
-**Stack Architecture:** Next.js 14 App Router (AWS Amplify Gen 2 Hosting) + Amazon DynamoDB (Single-Table Design via Terraform)  
+**Stack Architecture:** Next.js 14 App Router (AWS Amplify Hosting) + Amazon DynamoDB (Single-Table Design via Terraform)  
 **DevOps & Security:** S3 Remote Backend with Native Lockfiles, GitHub Actions Keyless OIDC Federation, CloudWatch Free-Tier Dashboard  
 **Cost Profile:** 100% Scale-to-Zero ($0.00 Idle Infrastructure Cost)  
 **Security Posture:** Zero Hardcoded Secrets, Least-Privilege IAM Policies, Zero Team Resource Coupling, Strict Zero-Secret Public Tracking  
@@ -25,7 +25,7 @@ flowchart TD
     end
 
     subgraph AWSCloud["AWS Region: ap-southeast-2 (Sydney)"]
-        AmplifyEdge["AWS Amplify Gen 2 Hosting (CloudFront CDN)"]
+        AmplifyEdge["AWS Amplify Hosting (CloudFront CDN)"]
         
         subgraph ServerlessSSR["Next.js 14 Serverless SSR Engine"]
             APIInventory["GET /api/inventory & POST /api/inventory/restock"]
@@ -90,7 +90,7 @@ flowchart TD
 3. **Automated Order Auto-Pruning (TTL)**:
    - Order records automatically carry a 7-day TTL epoch timestamp (`ttl` attribute).
    - DynamoDB purges expired order items in the background at zero consumed write capacity cost.
-4. **Amplify Gen 2 Serverless SSR**:
+4. **Amplify Hosting SSR Compute**:
    - SSR API routes execute as ephemeral serverless compute.
    - When no HTTP traffic reaches the endpoints, compute scales to zero instances.
 5. **Terraform S3 Remote Backend with Native Lockfiles**:
@@ -214,7 +214,7 @@ npm run seed
 
 ---
 
-## 5. Phase 2: Deploy Frontend & API via AWS Amplify Gen 2
+## 5. Phase 2: Deploy Frontend & API via AWS Amplify Hosting
 
 AWS Amplify Hosting manages the continuous integration and deployment of the Next.js 14 application using `amplify.yml`.
 
@@ -267,7 +267,7 @@ Runs on every pull request and push to `main`:
 2. Installs dependencies (`npm ci`).
 3. Installs Playwright browsers (`npx playwright install --with-deps chromium`).
 4. Runs ESLint (`npm run lint`).
-5. Runs Vitest suite (`npm test` — 69 tests passing).
+5. Runs Vitest suite (`npm test`).
 6. Compiles production Next.js build (`npm run build`).
 7. Runs Playwright browser E2E test suite (`npm run test:e2e`).
 8. Validates Terraform configurations (`terraform fmt -check`, `terraform validate`).

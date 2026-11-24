@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       auto_approve:
-        description: 'Auto-approve Terraform apply'
+        description: 'Apply the plan. Leave off to only produce a plan for review.'
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -39,8 +39,21 @@ jobs:
 
       - name: Terraform Plan
         working-directory: infra/terraform
-        run: terraform plan
+        run: |
+          terraform plan -input=false -out=tfplan
+          terraform show -no-color tfplan > tfplan.txt
 
+      # The readable plan is kept with the run so it can be reviewed before,
+      # or instead of, applying.
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: infra/terraform/tfplan.txt
+          retention-days: 14
+
+      # Applies exactly the plan produced above, and only when asked to.
       - name: Terraform Apply
+        if: ${{ inputs.auto_approve }}
         working-directory: infra/terraform
-        run: terraform apply -auto-approve
+        run: terraform apply -input=false tfplan
