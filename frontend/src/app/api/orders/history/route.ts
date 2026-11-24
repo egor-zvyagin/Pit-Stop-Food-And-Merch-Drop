@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
+import { withoutOrderSecrets } from '@/lib/auth/orderAccess';
 import { createRateLimiter } from '@/lib/validation/rateLimit';
 import { createRequestLogger, generateRequestId } from '@/lib/logger';
 
@@ -28,7 +29,9 @@ export async function GET(request: Request) {
       ticketCode = 'GP-3820-X';
     }
 
-    const orders = await db.getOrdersByTicket(ticketCode);
+    // A ticket code is printed on the ticket and is easy to guess, so the
+    // history never includes collection PINs or signed passes.
+    const orders = (await db.getOrdersByTicket(ticketCode)).map(withoutOrderSecrets);
 
     logger.log({ status: 200, dbOp: 'getOrdersByTicket' });
     return NextResponse.json({

@@ -53,6 +53,8 @@ export const CheckoutSchema = z.object({
   currency: z.string().optional().default('AUD'),
   pointsRedeemed: z.number().int().nonnegative().optional().default(0),
   idempotencyKey: z.string().optional(),
+  // The order's collection PIN: proves the caller owns the order being paid.
+  pinCode: z.string().optional(),
 });
 export type CheckoutInput = z.infer<typeof CheckoutSchema>;
 

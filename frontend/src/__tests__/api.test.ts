@@ -12,6 +12,7 @@ import { TEST_VENDOR_PIN } from './testEnv';
 
 describe('Serverless API Integration Test Suite', () => {
   let createdOrderId: string;
+  let createdPinCode: string;
   let createdOrderTotal: number;
   let createdQrPayload: string;
 
@@ -58,6 +59,7 @@ describe('Serverless API Integration Test Suite', () => {
 
     // Verify pickup PIN is a 4-digit code
     expect(data.order.pinCode).toMatch(/^\d{4}$/);
+    createdPinCode = data.order.pinCode;
 
     // Verify cryptographic Ed25519 pass was issued
     expect(createdQrPayload).toBeDefined();
@@ -97,8 +99,21 @@ describe('Serverless API Integration Test Suite', () => {
         orderId: createdOrderId,
         paymentMethod: 'apple_pay',
         amount: createdOrderTotal,
+        pinCode: createdPinCode,
       }),
     });
+
+    // Knowing only the order ID is not enough to mark an order as paid
+    const noPinReq = new Request('http://localhost:3000/api/payment/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: createdOrderId,
+        paymentMethod: 'apple_pay',
+        amount: createdOrderTotal,
+      }),
+    });
+    expect((await checkoutRoute(noPinReq)).status).toBe(401);
 
     const res = await checkoutRoute(payReq);
     expect(res.status).toBe(200);
@@ -121,6 +136,7 @@ describe('Serverless API Integration Test Suite', () => {
         orderId: createdOrderId,
         paymentMethod: 'apple_pay',
         amount: createdOrderTotal,
+        pinCode: createdPinCode,
       }),
     });
 
@@ -168,15 +184,25 @@ describe('Serverless API Integration Test Suite', () => {
     const validData = await validRes.json();
     expect(validData.success).toBe(true);
 
-    // 4. Fan self-collection without X-Vendor-Pin succeeds when order is READY_FOR_PICKUP
-    const fanCompleteReq = new Request(`http://localhost:3000/api/orders/${createdOrderId}/status`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ status: 'COMPLETED' }),
-    });
-    const fanCompleteRes = await patchOrderStatusRoute(fanCompleteReq, { params: { id: createdOrderId } });
+    // 4. Without the staff PIN, completing an order needs that order's own PIN
+    const patchAsFan = (pin?: string) =>
+      patchOrderStatusRoute(
+        new Request(`http://localhost:3000/api/orders/${createdOrderId}/status`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(pin ? { 'X-Order-Pin': pin } : {}),
+          },
+          body: JSON.stringify({ status: 'COMPLETED' }),
+        }),
+        { params: { id: createdOrderId } }
+      );
+
+    expect((await patchAsFan()).status).toBe(401);
+    const wrongOrderPin = createdPinCode === '0000' ? '1111' : '0000';
+    expect((await patchAsFan(wrongOrderPin)).status).toBe(401);
+
+    const fanCompleteRes = await patchAsFan(createdPinCode);
     expect(fanCompleteRes.status).toBe(200);
     const fanCompleteData = await fanCompleteRes.json();
     expect(fanCompleteData.order.status).toBe('COMPLETED');
