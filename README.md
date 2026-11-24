@@ -109,7 +109,7 @@ flowchart TD
 
 ## Engineering highlights
 
-- **No overselling.** Stock decrement and order creation are one DynamoDB `TransactWriteItems` call with a `stock >= :qty` condition. When a limited item sells out mid-checkout, the API answers `409 INSUFFICIENT_STOCK` and checkout offers to trim the order to what is left.
+- **No overselling, no shared lockers.** Stock decrement, the locker-bay claim and order creation are one DynamoDB `TransactWriteItems` call, with a `stock >= :qty` condition on each item and `attribute_not_exists` on the bay. When a limited item sells out mid-checkout, the API answers `409 INSUFFICIENT_STOCK` and checkout offers to trim the order to what is left; when another order wins a bay, the server picks the next free one. Collecting an order frees its bay.
 - **The server sets the price.** Prices come from the catalogue and the race flag stored on the server. Client-sent prices and flags are ignored, and a test proves a client cannot claim a post-race discount during a red flag.
 - **Kitchen options are validated.** A fan sends option IDs; only options the catalogue defines for that item are stored and shown to staff.
 - **Passes work without signal.** Each order gets an Ed25519-signed QR pass. The staff terminal verifies it on the device in about a millisecond and rejects replays.
@@ -154,7 +154,6 @@ Shared pieces live in `frontend/src/components/ui/kit.tsx` and are described in 
 **Known limits**
 - Rate limiting and payment idempotency keys are held in memory per server instance, so they are best-effort on serverless.
 - The server's rewards history and "points already awarded" check are also per instance.
-- Locker bay allocation is not atomic: two orders placed at the same moment can be given the same bay.
 - A fan is identified by ticket code alone, and the collection PIN is four digits.
 - Tests run on the in-memory store. The DynamoDB code path is tested with a stubbed client, not against a real table.
 - `npm audit` reports 7 advisories that need major upgrades (Next.js 14 to 16, MapLibre GL 5 to 6).
@@ -175,10 +174,11 @@ Unit, integration, crypto, concurrency and security tests run with Vitest; brows
 ✓ src/__tests__/v3Features.test.ts              (9 tests)
 ✓ src/__tests__/dbFailure.test.ts               (8 tests)
 ✓ src/__tests__/orderAccess.test.ts             (6 tests)
+✓ src/__tests__/lockers.test.ts                 (4 tests)
 ✓ src/lib/offline/__tests__/syncQueue.test.ts   (6 tests)
 
-Test Files  9 passed (9)
-     Tests  96 passed (96)
+Test Files  10 passed (10)
+     Tests  100 passed (100)
 ```
 
 Three suites guard the hardening work: `secrets.test.ts` (no PIN or key configured means requests are refused), `orderAccess.test.ts` (an order ID or ticket code never unlocks a PIN or pass) and `dbFailure.test.ts` (a failing DynamoDB returns an error, never invented data).
@@ -295,7 +295,7 @@ Open [http://localhost:3000](http://localhost:3000) for the fan app or [http://l
 
 ### 6. Run Test Suites
 ```bash
-# Run all Vitest unit, security and concurrency suites (96 tests)
+# Run all Vitest unit, security and concurrency suites (100 tests)
 npm test
 
 # Run Playwright browser E2E suite against the production build (Mobile & Tablet Kiosk)

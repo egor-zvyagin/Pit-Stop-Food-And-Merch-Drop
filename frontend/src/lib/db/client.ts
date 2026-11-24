@@ -1,6 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   UpdateCommand,
@@ -64,6 +65,8 @@ function createInMemoryStore() {
     tickets: new Map<string, TicketProfile>(),
     ticketHistory: new Map<string, RewardsHistoryItem[]>(),
     awardedOrders: new Set<string>(),
+    /** Locker claims: "<stationId>#<bay>" -> orderId. Mirrors LOCKER# items. */
+    lockerClaims: new Map<string, string>(),
     circuitState: null as CircuitState | null,
     initialized: false,
   };
@@ -110,6 +113,24 @@ export class InsufficientStockError extends Error {
     this.name = 'InsufficientStockError';
     this.availableStock = availableStock;
   }
+}
+
+/**
+ * Thrown when another order claimed the same locker bay first. The caller
+ * picks another bay and tries again.
+ */
+export class LockerTakenError extends Error {
+  public readonly bay: string;
+
+  constructor(bay: string) {
+    super(`Locker bay ${bay} was claimed by another order`);
+    this.name = 'LockerTakenError';
+    this.bay = bay;
+  }
+}
+
+function lockerClaimKey(stationId: string, bay: string) {
+  return { PK: `LOCKER#${stationId}#${bay}`, SK: 'CLAIM' };
 }
 
 function initInMemoryDefaults() {
@@ -194,6 +215,7 @@ function initInMemoryDefaults() {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
+  inMemoryStore.lockerClaims.set('M2##04', 'GP-2026-X9K2P4');
 
   inMemoryStore.initialized = true;
 }
@@ -542,6 +564,8 @@ export const db = {
         dbFailure('updateOrderStatus', err);
       }
     }
+
+    if (status === 'COMPLETED') await this.releaseLockerBay(cleanId);
 
     // In DynamoDB mode return the stored record, not this process's copy
     return client ? this.getOrderById(cleanId) : existing;
@@ -984,6 +1008,23 @@ export const db = {
         });
       }
 
+      // Claim the locker bay in the same transaction, so two orders placed at
+      // the same moment can never be given the same bay.
+      const claimIndex = fullOrder.counterNumber ? transactItems.length : -1;
+      if (fullOrder.counterNumber) {
+        transactItems.push({
+          Put: {
+            TableName: TABLE_NAME,
+            Item: {
+              ...lockerClaimKey(fullOrder.pickupStationId, fullOrder.counterNumber),
+              orderId: fullOrder.orderId,
+              ttl,
+            },
+            ConditionExpression: 'attribute_not_exists(PK)',
+          },
+        });
+      }
+
       transactItems.push({
         Put: {
           TableName: TABLE_NAME,
@@ -1021,6 +1062,16 @@ export const db = {
             err.message.includes('ConditionalCheckFailed') ||
             err.message.includes('TransactionCanceledException'));
 
+        // The cancellation reasons are listed in transaction order: if only
+        // the locker claim failed, the bay was taken, not the stock.
+        const reasons = (err as { CancellationReasons?: Array<{ Code?: string }> }).CancellationReasons;
+        if (isStockFailure && claimIndex >= 0 && Array.isArray(reasons)) {
+          const failed = reasons.map((r, i) => (r?.Code && r.Code !== 'None' ? i : -1)).filter((i) => i >= 0);
+          if (failed.length === 1 && failed[0] === claimIndex) {
+            throw new LockerTakenError(fullOrder.counterNumber);
+          }
+        }
+
         if (isStockFailure) {
           // Build an availableStock map from current DynamoDB state
           const availableStock: Record<string, number> = {};
@@ -1057,6 +1108,11 @@ export const db = {
     if (Object.keys(insufficientItems).length > 0) {
       throw new InsufficientStockError(insufficientItems);
     }
+    const claimKey = fullOrder.counterNumber ? `${fullOrder.pickupStationId}#${fullOrder.counterNumber}` : null;
+    if (claimKey && inMemoryStore.lockerClaims.has(claimKey)) {
+      throw new LockerTakenError(fullOrder.counterNumber);
+    }
+    if (claimKey) inMemoryStore.lockerClaims.set(claimKey, fullOrder.orderId);
 
     // All stocks sufficient — decrement atomically and persist
     for (const [itemId, qty] of Object.entries(itemQuantities)) {
@@ -1210,7 +1266,33 @@ export const db = {
   },
 
   // --- SMART LOCKER BAY ALLOCATION ---
-  async allocateLockerBay(stationId: string): Promise<string> {
+  /** Frees the locker an order held, once it has been collected. */
+  async releaseLockerBay(orderId: string): Promise<void> {
+    const order = (await this.getOrderById(orderId)) ?? inMemoryStore.orders.get(orderId);
+    if (!order?.counterNumber) return;
+    const key = `${order.pickupStationId}#${order.counterNumber}`;
+    if (inMemoryStore.lockerClaims.get(key) === order.orderId) inMemoryStore.lockerClaims.delete(key);
+
+    const client = getDocClient();
+    if (!client) return;
+    try {
+      await client.send(
+        new DeleteCommand({
+          TableName: TABLE_NAME,
+          Key: lockerClaimKey(order.pickupStationId, order.counterNumber),
+          ConditionExpression: 'orderId = :id',
+          ExpressionAttributeValues: { ':id': order.orderId },
+        })
+      );
+    } catch (err) {
+      // Already released, or claimed by a newer order: nothing to free.
+      if (!(err instanceof Error && err.name === 'ConditionalCheckFailedException')) {
+        dbFailure('releaseLockerBay', err);
+      }
+    }
+  },
+
+  async allocateLockerBay(stationId: string, exclude: ReadonlySet<string> = new Set()): Promise<string> {
     // Load all active orders at this station
     const allOrders = await this.getAllOrders();
     const activeStatuses = new Set(['RECEIVED', 'PREPARING', 'READY_FOR_PICKUP']);
@@ -1227,7 +1309,7 @@ export const db = {
     // Try bays #01..#08
     for (let i = 1; i <= 8; i++) {
       const bay = `#${String(i).padStart(2, '0')}`;
-      if (!occupiedBays.has(bay)) {
+      if (!occupiedBays.has(bay) && !exclude.has(bay)) {
         return bay;
       }
     }
@@ -1235,7 +1317,7 @@ export const db = {
     // All 8 full — overflow queue bays
     for (let i = 1; i <= 20; i++) {
       const bay = `#Q${i}`;
-      if (!occupiedBays.has(bay)) {
+      if (!occupiedBays.has(bay) && !exclude.has(bay)) {
         return bay;
       }
     }

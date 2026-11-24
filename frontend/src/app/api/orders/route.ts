@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { db, OrderItemRecord, OrderRecord, InsufficientStockError } from '@/lib/db/client';
+import { db, OrderItemRecord, OrderRecord, InsufficientStockError, LockerTakenError } from '@/lib/db/client';
 import { Ed25519PassEngine, OrderPassPayload } from '@/lib/crypto/passEngine';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
 import { CATALOG_BY_ID, resolveOptionLabels } from '@/data/catalog';
@@ -114,7 +114,6 @@ export async function POST(request: Request) {
 
     // 2. Concession Pod lookup & Smart Locker Bay allocation (#01..#08)
     const targetPod = PIT_STOPS.find((p) => p.id === chosenStationId) || PIT_STOPS[1]; // Default M2
-    const lockerCounter = await db.allocateLockerBay(targetPod.id);
     const pinCode = await generateUniquePin();
     const orderId = generateOrderId();
 
@@ -158,7 +157,7 @@ export async function POST(request: Request) {
       loyaltyPointsEarned: pricing.loyaltyPointsEarned,
       pickupStationId: targetPod.id,
       pickupStationName: targetPod.name,
-      counterNumber: lockerCounter,
+      counterNumber: '',
       walkTimeMins: targetPod.walkMins,
       qrPayload: signedPass.qrPayload,
       signatureBase64: signedPass.signatureBase64,
@@ -175,8 +174,23 @@ export async function POST(request: Request) {
       itemQuantities[item.itemId] = (itemQuantities[item.itemId] || 0) + item.quantity;
     }
 
+    // The locker bay is claimed inside the same transaction. If another order
+    // took the chosen bay a moment earlier, pick the next free one and retry.
+    const triedBays = new Set<string>();
     try {
-      await db.createOrderAtomic(orderRecord, itemQuantities);
+      for (let attempt = 0; ; attempt++) {
+        orderRecord.counterNumber = await db.allocateLockerBay(targetPod.id, triedBays);
+        try {
+          await db.createOrderAtomic(orderRecord, itemQuantities);
+          break;
+        } catch (err) {
+          if (err instanceof LockerTakenError && attempt < 5) {
+            triedBays.add(err.bay);
+            continue;
+          }
+          throw err;
+        }
+      }
     } catch (dbErr) {
       if (dbErr instanceof InsufficientStockError) {
         logger.log({ status: 409, error: 'Insufficient stock', dbOp: 'createOrderAtomic' });
