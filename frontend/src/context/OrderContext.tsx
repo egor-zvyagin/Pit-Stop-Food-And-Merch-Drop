@@ -170,6 +170,8 @@ export function OrderProvider({ children }: { children: ReactNode }) {
       // 1. Ticket
       const savedTicket = localStorage.getItem("ausgp_ticket_code");
       const targetTicketCode = savedTicket || "GP-3820-X";
+      // Reads browser storage after hydration: reading it during render would
+      // make the server and client HTML differ.
       setActiveTicketCode(targetTicketCode);
 
       const cachedProfile = localStorage.getItem("ausgp_ticket_profile");

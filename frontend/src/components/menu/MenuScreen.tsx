@@ -247,7 +247,8 @@ export default function MenuScreen() {
         </aside>
       </div>
 
-      <ItemSheet item={liveOpenItem} onClose={() => setOpenItem(null)} />
+      {/* Keyed by item so quantity and options start fresh for each item. */}
+      <ItemSheet key={liveOpenItem?.id ?? "none"} item={liveOpenItem} onClose={() => setOpenItem(null)} />
     </>
   );
 }

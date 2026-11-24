@@ -155,7 +155,7 @@ describe('Serverless API Integration Test Suite', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'READY_FOR_PICKUP' }),
     });
-    const unauthRes = await patchOrderStatusRoute(unauthReq, { params: { id: createdOrderId } });
+    const unauthRes = await patchOrderStatusRoute(unauthReq, { params: Promise.resolve({ id: createdOrderId }) });
     expect(unauthRes.status).toBe(401);
 
     // 2. With incorrect vendor PIN -> 401 Unauthorized
@@ -167,7 +167,7 @@ describe('Serverless API Integration Test Suite', () => {
       },
       body: JSON.stringify({ status: 'READY_FOR_PICKUP' }),
     });
-    const wrongPinRes = await patchOrderStatusRoute(wrongPinReq, { params: { id: createdOrderId } });
+    const wrongPinRes = await patchOrderStatusRoute(wrongPinReq, { params: Promise.resolve({ id: createdOrderId }) });
     expect(wrongPinRes.status).toBe(401);
 
     // 3. With correct vendor PIN -> 200 OK update to READY_FOR_PICKUP
@@ -179,7 +179,7 @@ describe('Serverless API Integration Test Suite', () => {
       },
       body: JSON.stringify({ status: 'READY_FOR_PICKUP' }),
     });
-    const validRes = await patchOrderStatusRoute(validPinReq, { params: { id: createdOrderId } });
+    const validRes = await patchOrderStatusRoute(validPinReq, { params: Promise.resolve({ id: createdOrderId }) });
     expect(validRes.status).toBe(200);
     const validData = await validRes.json();
     expect(validData.success).toBe(true);
@@ -195,7 +195,7 @@ describe('Serverless API Integration Test Suite', () => {
           },
           body: JSON.stringify({ status: 'COMPLETED' }),
         }),
-        { params: { id: createdOrderId } }
+        { params: Promise.resolve({ id: createdOrderId }) }
       );
 
     expect((await patchAsFan()).status).toBe(401);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 type Permission = "default" | "granted" | "denied" | "unsupported";
 
@@ -18,10 +18,16 @@ function currentPermission(): Permission {
  * service, which this project does not run.
  */
 export function useReadyAlert(status: string | undefined, orderLabel: string, place: string) {
-  const [permission, setPermission] = useState<Permission>("unsupported");
+  // The browser's permission, read after hydration (the server has no
+  // Notification API), then whatever the fan chose in this session.
+  const browserPermission = useSyncExternalStore(
+    () => () => undefined,
+    currentPermission,
+    () => "unsupported" as Permission
+  );
+  const [chosen, setChosen] = useState<Permission | null>(null);
+  const permission = chosen ?? browserPermission;
   const previous = useRef(status);
-
-  useEffect(() => setPermission(currentPermission()), []);
 
   useEffect(() => {
     const was = previous.current;
@@ -57,7 +63,7 @@ export function useReadyAlert(status: string | undefined, orderLabel: string, pl
   const request = useCallback(async () => {
     if (currentPermission() === "unsupported") return;
     const result = await Notification.requestPermission();
-    setPermission(result as Permission);
+    setChosen(result as Permission);
   }, []);
 
   return { permission, request };

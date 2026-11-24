@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import type { PublicOrderTracking } from "@/lib/types";
 import { PIT_STOPS } from "@/data/pitStopConstantData";
 import PitBoard from "@/components/orders/PitBoard";
 import { Notice } from "@/components/ui/kit";
-
-interface PageProps {
-  params: { orderId: string };
-}
 
 function stageFor(status: string): string {
   switch (status?.toUpperCase()) {
@@ -37,8 +34,9 @@ const HEADLINE: Record<string, string> = {
  * Public tracker for a shared link. An order ID only ever unlocks progress:
  * no PIN, QR code or signature is sent to this page.
  */
-export default function TrackOrderPage({ params }: PageProps) {
-  const orderId = params?.orderId || "";
+export default function TrackOrderPage() {
+  const params = useParams<{ orderId: string }>();
+  const orderId = decodeURIComponent(params?.orderId ?? "");
   const [order, setOrder] = useState<PublicOrderTracking | null>(null);
   const [problem, setProblem] = useState<"missing" | "offline" | "error" | null>(null);
 

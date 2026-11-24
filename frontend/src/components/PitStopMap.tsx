@@ -2,8 +2,11 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import Map, { Marker, Source, Layer, MapRef } from "react-map-gl/maplibre";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// The worker file is copied to public/maplibre by scripts/copy-maplibre-worker.mjs.
+maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 import type { Feature, LineString } from "geojson";
 import {
   Maximize2,
@@ -154,6 +157,7 @@ export default function PitStopMap(props: PitStopMapProps) {
           (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"))
         );
         if (!hasWebGL) {
+          // WebGL support is only known in the browser, after hydration.
           setHasMapError(true);
         }
       } catch {

@@ -35,13 +35,12 @@ export default function LockerBayGrid({
   onBaysUpdated,
 }: LockerBayGridProps) {
   const [remoteBays, setRemoteBays] = useState<LockerBayStatus[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   // Fetch locker status from server if available
   const fetchLockers = useCallback(async () => {
     if (!stationId) return;
     try {
-      setLoading(true);
       const res = await fetch(`/api/stations/lockers?stationId=${encodeURIComponent(stationId)}`, {
         headers: {
           'X-Vendor-Pin': vendorPin,
@@ -60,11 +59,12 @@ export default function LockerBayGrid({
       // Fallback to local computation
       setRemoteBays(null);
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [stationId, vendorPin, onBaysUpdated]);
 
   useEffect(() => {
+    // fetchLockers only sets state after its network request returns.
     fetchLockers();
     const interval = setInterval(fetchLockers, 5000);
     return () => clearInterval(interval);
@@ -151,7 +151,7 @@ export default function LockerBayGrid({
           Lockers at pod {stationId}
         </h2>
         <span className="text-[13px] text-[#9aa3ab] tabular">
-          {loading && !remoteBays ? 'Loading…' : `${occupiedCount} of ${computedBays.length} in use`}
+          {!loaded ? 'Loading…' : `${occupiedCount} of ${computedBays.length} in use`}
         </span>
       </div>
       <ul className="mt-3 grid grid-cols-4 gap-2 lg:grid-cols-8">

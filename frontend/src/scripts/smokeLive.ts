@@ -258,7 +258,7 @@ function createInProcessClient(): SmokeClient {
     },
     async getOrderPublic(orderId) {
       const req = new Request(`http://localhost:3000/api/orders/${encodeURIComponent(orderId)}/public`);
-      const res = await getOrderPublicRoute(req, { params: { id: orderId } });
+      const res = await getOrderPublicRoute(req, { params: Promise.resolve({ id: orderId }) });
       return { status: res.status, data: await res.json() };
     },
     async checkout(payload, idempotencyKey) {
@@ -281,7 +281,7 @@ function createInProcessClient(): SmokeClient {
         headers,
         body: JSON.stringify({ status }),
       });
-      const res = await patchOrderStatusRoute(req, { params: { id: orderId } });
+      const res = await patchOrderStatusRoute(req, { params: Promise.resolve({ id: orderId }) });
       return { status: res.status, data: await res.json() };
     },
     async getRewards(ticketCode) {

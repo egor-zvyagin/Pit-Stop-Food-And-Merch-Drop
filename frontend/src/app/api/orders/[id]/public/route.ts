@@ -12,10 +12,11 @@ const rateLimiter = createRateLimiter('standard');
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const requestId = generateRequestId();
-  const logger = createRequestLogger({ requestId, route: `/api/orders/${params?.id}/public`, method: 'GET' });
+  const { id } = await params;
+  const logger = createRequestLogger({ requestId, route: `/api/orders/${id}/public`, method: 'GET' });
 
   // Rate Limiting
   const limit = rateLimiter.consume();
@@ -25,7 +26,6 @@ export async function GET(
   }
 
   try {
-    const { id } = params;
 
     if (!id) {
       logger.log({ status: 400, error: 'Order ID is required' });
