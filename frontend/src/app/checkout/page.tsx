@@ -1,5 +1,10 @@
-import CheckoutContent from "@/components/checkout/CheckoutContent";
+import { Suspense } from "react";
+import CheckoutScreen from "@/components/checkout/CheckoutScreen";
 
 export default function Checkout() {
-    return <CheckoutContent />;
+  return (
+    <Suspense>
+      <CheckoutScreen />
+    </Suspense>
+  );
 }

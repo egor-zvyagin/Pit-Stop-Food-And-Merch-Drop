@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Icon } from '@iconify/react';
+import { Icon } from "@/components/ui/Icon";
 import { CircuitState, LockerBayStatus } from '@/lib/types';
 import { getPendingSyncActions, flushSyncQueue } from '@/lib/offline/syncQueue';
 
@@ -141,7 +141,7 @@ export default function KioskTelemetryBar({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon icon="mdi:chart-line" width={18} height={18} className="text-red-500" />
-          <h2 className="font-display font-black text-sm uppercase tracking-wider text-white">
+          <h2 className="font-display font-black text-sm text-white">
             Kiosk Telemetry
           </h2>
         </div>
@@ -166,7 +166,7 @@ export default function KioskTelemetryBar({
             />
           </button>
           {airplaneMode && (
-            <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider border border-amber-500/30 bg-amber-500/10 rounded px-1">
+            <span className="text-[10px] font-bold text-amber-400 border border-amber-500/30 bg-amber-500/10 rounded px-1">
               OFFLINE
             </span>
           )}
@@ -177,7 +177,7 @@ export default function KioskTelemetryBar({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {/* Active Orders */}
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-3 space-y-0.5">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+          <div className="text-[11px] font-bold text-neutral-500">
             Active Orders
           </div>
           <div className="text-2xl font-display font-black text-white tabular-nums">
@@ -187,7 +187,7 @@ export default function KioskTelemetryBar({
 
         {/* Avg Prep Time */}
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-3 space-y-0.5">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+          <div className="text-[11px] font-bold text-neutral-500">
             Avg Prep
           </div>
           <div className="text-2xl font-display font-black text-white tabular-nums">
@@ -198,7 +198,7 @@ export default function KioskTelemetryBar({
 
         {/* Locker Bay Utilization */}
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/70 p-3 space-y-0.5">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+          <div className="text-[11px] font-bold text-neutral-500">
             Locker Bays
           </div>
           <div className="text-2xl font-display font-black text-white tabular-nums">
@@ -216,7 +216,7 @@ export default function KioskTelemetryBar({
               : 'border-neutral-800 bg-neutral-900/70'
           }`}
         >
-          <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+          <div className="text-[11px] font-bold text-neutral-500">
             Low Stock
           </div>
           <div

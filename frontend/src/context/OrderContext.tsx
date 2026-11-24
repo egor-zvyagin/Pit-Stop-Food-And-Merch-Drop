@@ -10,11 +10,9 @@ import React, {
   useCallback,
 } from "react";
 
-import { ORDER_ITEMS } from "@/data/orderConstantData";
-import { CATALOG_ITEMS } from "@/data/catalog";
+import { CATALOG_ITEMS, CATALOG_BY_ID, resolveOptionLabels } from "@/data/catalog";
 import { PIT_STOPS, PitStop, PitStopId } from "@/data/pitStopConstantData";
 import { COLLECT_STATUS, CollectStatus } from "@/data/collectConstantData";
-import { DEMO_QR_CODE_SRC } from "@/data/demoConstantData";
 import { TicketProfile } from "@/lib/types";
 
 export type ActiveOrderItem = {
@@ -24,6 +22,32 @@ export type ActiveOrderItem = {
   name?: string;
   image?: string;
   isFree?: boolean;
+  /** Kitchen option labels, e.g. ["No pickles"]. */
+  options?: string[];
+};
+
+/**
+ * Cart lines are keyed by item and chosen options, so "burger" and
+ * "burger, no pickles" are separate lines. An item with no options keeps its
+ * plain ID as the key.
+ */
+export function lineKey(itemId: string, optionIds: readonly string[] = []): string {
+  if (optionIds.length === 0) return itemId;
+  return `${itemId}~${[...optionIds].sort().join("+")}`;
+}
+
+export function parseLineKey(key: string): { itemId: string; optionIds: string[] } {
+  const [itemId, rest] = key.split("~");
+  return { itemId, optionIds: rest ? rest.split("+").filter(Boolean) : [] };
+}
+
+export type CartLine = {
+  key: string;
+  itemId: string;
+  optionIds: string[];
+  optionLabels: string[];
+  quantity: number;
+  unitPrice: number;
 };
 
 export type ActiveOrder = {
@@ -41,6 +65,9 @@ export type ActiveOrder = {
   qrPayload?: string;
   lockerNumber?: string;
   stationName?: string;
+  createdAt?: string;
+  /** True for a Demo Mode order that never reached the server. */
+  isLocalDemo?: boolean;
 };
 
 export type PlaceOrderInput = {
@@ -52,14 +79,15 @@ export type PlaceOrderInput = {
   qrPayload?: string;
   lockerNumber?: string;
   ticketCode?: string;
+  isLocalDemo?: boolean;
 };
 
 export const DEMO_TICKETS: Record<string, TicketProfile> = {
   "GP-3820-X": {
     ticketCode: "GP-3820-X",
     verified: true,
-    holderName: "Alex Hamilton",
-    ticketType: "Paddock Club VIP",
+    holderName: "Alex Morgan",
+    ticketType: "Grandstand, three-day",
     viewingArea: {
       grandstand: "Clark Grandstand (VIP)",
       turn: "Turn 9",
@@ -73,8 +101,8 @@ export const DEMO_TICKETS: Record<string, TicketProfile> = {
   "GP-9014-P": {
     ticketCode: "GP-9014-P",
     verified: true,
-    holderName: "Jordan Piastri",
-    ticketType: "Grandstand Pass",
+    holderName: "Jordan Lee",
+    ticketType: "Grandstand, Sunday",
     viewingArea: {
       grandstand: "Waite Grandstand",
       turn: "Turn 11",
@@ -95,6 +123,9 @@ export interface OrderContextType {
 
   // Cart
   quantities: Record<string, number>;
+  /** Non-empty cart lines with names resolved, in the order they were added. */
+  cartLines: CartLine[];
+  addToCart: (itemId: string, optionIds?: string[], qty?: number) => void;
   increaseQuantity: (id: string) => void;
   decreaseQuantity: (id: string) => void;
   setQuantity: (id: string, qty: number) => void;
@@ -120,13 +151,8 @@ const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 function createEmptyQuantities(): Record<string, number> {
   const initial: Record<string, number> = {};
-  for (const item of ORDER_ITEMS) {
-    initial[item.id] = 0;
-  }
   for (const item of CATALOG_ITEMS) {
-    if (!(item.id in initial)) {
-      initial[item.id] = 0;
-    }
+    initial[item.id] = 0;
   }
   return initial;
 }
@@ -163,7 +189,20 @@ export function OrderProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 3. Station
+      // 3. Cart
+      const savedCart = localStorage.getItem("pitstop_cart_v1");
+      if (savedCart) {
+        const parsedCart = JSON.parse(savedCart) as Record<string, number>;
+        const valid: Record<string, number> = {};
+        for (const [key, qty] of Object.entries(parsedCart)) {
+          if (CATALOG_BY_ID.has(parseLineKey(key).itemId) && Number(qty) > 0) {
+            valid[key] = Math.min(20, Math.floor(Number(qty)));
+          }
+        }
+        setQuantities({ ...createEmptyQuantities(), ...valid });
+      }
+
+      // 4. Station
       const savedStation = localStorage.getItem("ausgp_pitstop_id");
       if (savedStation) {
         setSelectedPitStopId(savedStation as PitStopId);
@@ -185,6 +224,21 @@ export function OrderProvider({ children }: { children: ReactNode }) {
       // Ignore
     }
   }, [activeOrder]);
+
+  // Persist the cart so a reload or a dropped connection keeps it
+  const cartHydrated = React.useRef(false);
+  useEffect(() => {
+    if (!cartHydrated.current) {
+      cartHydrated.current = true;
+      return;
+    }
+    try {
+      const nonEmpty = Object.fromEntries(Object.entries(quantities).filter(([, q]) => q > 0));
+      localStorage.setItem("pitstop_cart_v1", JSON.stringify(nonEmpty));
+    } catch {
+      // Ignore
+    }
+  }, [quantities]);
 
   // Persist ticket changes
   const switchTicket = useCallback(async (code: string): Promise<boolean> => {
@@ -268,10 +322,18 @@ export function OrderProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const addToCart = useCallback((itemId: string, optionIds: string[] = [], qty = 1) => {
+    const key = lineKey(itemId, optionIds);
+    setQuantities((current) => ({
+      ...current,
+      [key]: Math.min(20, (current[key] ?? 0) + qty),
+    }));
+  }, []);
+
   const increaseQuantity = useCallback((id: string) => {
     setQuantities((current) => ({
       ...current,
-      [id]: (current[id] ?? 0) + 1,
+      [id]: Math.min(20, (current[id] ?? 0) + 1),
     }));
   }, []);
 
@@ -297,23 +359,29 @@ export function OrderProvider({ children }: { children: ReactNode }) {
     return Object.values(quantities).reduce((total, q) => total + q, 0);
   }, [quantities]);
 
-  const totalPrice = useMemo(() => {
-    // Combine catalog & order constant items for full coverage
-    let sum = 0;
-    for (const [id, qty] of Object.entries(quantities)) {
+  const cartLines = useMemo<CartLine[]>(() => {
+    const lines: CartLine[] = [];
+    for (const [key, qty] of Object.entries(quantities)) {
       if (qty <= 0) continue;
-      const catItem = CATALOG_ITEMS.find((c) => c.id === id);
-      if (catItem) {
-        sum += catItem.price * qty;
-      } else {
-        const ordItem = ORDER_ITEMS.find((o) => o.id === id);
-        if (ordItem) {
-          sum += ordItem.price * qty;
-        }
-      }
+      const { itemId, optionIds } = parseLineKey(key);
+      const catItem = CATALOG_BY_ID.get(itemId);
+      if (!catItem) continue;
+      const unitPrice = catItem.price;
+      lines.push({
+        key,
+        itemId,
+        optionIds,
+        optionLabels: resolveOptionLabels(itemId, optionIds),
+        quantity: qty,
+        unitPrice,
+      });
     }
-    return sum;
+    return lines;
   }, [quantities]);
+
+  const totalPrice = useMemo(() => {
+    return cartLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
+  }, [cartLines]);
 
   const placeOrder = useCallback(
     ({
@@ -324,36 +392,31 @@ export function OrderProvider({ children }: { children: ReactNode }) {
       collectionCode,
       qrPayload,
       lockerNumber,
+      isLocalDemo,
     }: PlaceOrderInput): ActiveOrder | null => {
       if (!selectedPitStopId || totalItems === 0) return null;
 
       const orderItems: ActiveOrderItem[] = [];
 
-      for (const [id, qty] of Object.entries(quantities)) {
-        if (qty <= 0) continue;
-        const catItem = CATALOG_ITEMS.find((c) => c.id === id);
-        const ordItem = ORDER_ITEMS.find((o) => o.id === id);
-        const name = catItem?.name || ordItem?.name || id.toUpperCase();
-        const unitPrice = catItem?.price ?? ordItem?.price ?? 0;
-        const image = catItem?.image || "/images/burger.jpg";
-
+      for (const line of cartLines) {
+        const catItem = CATALOG_BY_ID.get(line.itemId);
         orderItems.push({
-          itemId: id,
-          quantity: qty,
-          unitPrice,
-          name,
-          image,
+          itemId: line.itemId,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+          name: catItem?.name || line.itemId,
+          image: catItem?.image || "/images/burger.jpg",
+          options: line.optionLabels.length > 0 ? line.optionLabels : undefined,
         });
       }
 
       if (freeItemId) {
-        const catItem = CATALOG_ITEMS.find((c) => c.id === freeItemId);
-        const ordItem = ORDER_ITEMS.find((o) => o.id === freeItemId);
+        const catItem = CATALOG_BY_ID.get(freeItemId);
         orderItems.push({
           itemId: freeItemId,
           quantity: 1,
           unitPrice: 0,
-          name: catItem?.name || ordItem?.name || freeItemId.toUpperCase(),
+          name: catItem?.name || freeItemId,
           image: catItem?.image || "/images/burger.jpg",
           isFree: true,
         });
@@ -369,6 +432,7 @@ export function OrderProvider({ children }: { children: ReactNode }) {
         pinCode: orderNumber,
         pitStopId: selectedPitStopId,
         stationName: selectedPitStop?.name || `Pit Stop ${selectedPitStopId}`,
+        createdAt: new Date().toISOString(),
         items: orderItems,
         totalPaid,
         rewardPoints,
@@ -376,14 +440,14 @@ export function OrderProvider({ children }: { children: ReactNode }) {
         estimatedMinutes: 3,
         qrPayload: qrPayload || `AGPC1.AGPC-2027-KEY-01.DEMO.${ref}`,
         lockerNumber: lockerNumber || "#04",
-        qrCodeSrc: DEMO_QR_CODE_SRC,
+        isLocalDemo: Boolean(isLocalDemo),
       };
 
       setActiveOrder(newOrder);
       setQuantities(createEmptyQuantities());
       return newOrder;
     },
-    [selectedPitStopId, selectedPitStop, totalItems, quantities]
+    [selectedPitStopId, selectedPitStop, totalItems, cartLines]
   );
 
   const updateActiveOrderStatus = useCallback((status: CollectStatus | string) => {
@@ -411,6 +475,8 @@ export function OrderProvider({ children }: { children: ReactNode }) {
         selectedPitStopId,
         setSelectedPitStopId: handleSetSelectedPitStopId,
         quantities,
+        cartLines,
+        addToCart,
         increaseQuantity,
         decreaseQuantity,
         setQuantity,

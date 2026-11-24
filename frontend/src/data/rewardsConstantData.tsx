@@ -4,7 +4,7 @@ import type { CheckoutVoucherId } from "@/data/checkoutConstantData";
 export const REWARD_BADGES = [
     {
         id: "speedy-pickup",
-        name: "SPEEDY PICKUP",
+        name: "Speedy pickup",
         description: "Picked up in under 3 mins",
         unlockDescription: "Collect your order within 3 minutes of it being marked ready",
         rewardPoints: 500,
@@ -13,7 +13,7 @@ export const REWARD_BADGES = [
     },
     {
         id: "order-streak",
-        name: "ORDER STREAK",
+        name: "Order streak",
         description: "Complete 5 orders",
         unlockDescription: "Complete 5 orders",
         rewardPoints: 750,
@@ -22,7 +22,7 @@ export const REWARD_BADGES = [
     },
     {
         id: "big-spender",
-        name: "BIG SPENDER",
+        name: "Big spender",
         description: "Spend over $100 total",
         unlockDescription: "Accumulate a total spend of $100 or more across all your orders",
         rewardPoints: 1000,
@@ -31,7 +31,7 @@ export const REWARD_BADGES = [
     },
     {
         id: "weekend-warrior",
-        name: "WEEKEND WARRIOR",
+        name: "Weekend warrior",
         description: "Ordered all 3 race days",
         unlockDescription: "Ordered all 3 race days",
         rewardPoints: 1000,
@@ -40,7 +40,7 @@ export const REWARD_BADGES = [
     },
     {
         id: "podium-finisher",
-        name: "PODIUM FINISHER",
+        name: "Podium finisher",
         description: "Order at 3 different events",
         unlockDescription: "Order at 3 different events",
         rewardPoints: 1500,
@@ -49,8 +49,8 @@ export const REWARD_BADGES = [
     },
     {
         id: "early-bird",
-        name: "EARLY BIRD",
-        description: "Ordered before 11 AM.",
+        name: "Early bird",
+        description: "Ordered before 11 am",
         unlockDescription: "Place and pay for an order before 11:00 AM on race day",
         rewardPoints: 500,
         target: 1,
@@ -58,8 +58,8 @@ export const REWARD_BADGES = [
     },
     {
         id: "snack-attack",
-        name: "SNACK ATTACK",
-        description: "Order 3+ items at once.",
+        name: "Snack attack",
+        description: "Order 3 or more items at once",
         unlockDescription: "Order 3+ items at once",
         rewardPoints: 1000,
         target: 1,
@@ -67,8 +67,8 @@ export const REWARD_BADGES = [
     },
     {
         id: "vip-fan",
-        name: "VIP FAN",
-        description: "Reach 2,000 PTS.",
+        name: "VIP fan",
+        description: "Reach 2,000 points",
         unlockDescription: "Accumulate 2,000 points to unlock VIP Fan status and perks",
         rewardPoints: null,
         target: 2000,
@@ -208,27 +208,27 @@ export type RedeemReward = {
 export const REDEEM_REWARDS: RedeemReward[] = [
     {
         id: "free-cold-brew",
-        name: "Free Cold Brew",
+        name: "Free spring water",
         description:
-            "Adds a free Pit Lane Cold Brew to your next order.",
+            "Takes the price of a spring water off your next order.",
         pointsCost: 500,
-        icon: "noto:hot-beverage",
+        icon: "ph:tag-fill",
         voucherId: "free-cold-brew",
     },
     {
         id: "free-fries",
-        name: "Free Fries Upgrade",
+        name: "Free loaded fries",
         description:
-            "Makes your High-Downforce Fries free on your next order.",
+            "Takes the price of loaded fries off your next order.",
         pointsCost: 800,
         icon: "noto:french-fries",
         voucherId: "free-fries",
     },
     {
         id: "five-off",
-        name: "$5 Off Your Order",
+        name: "$5 off your order",
         description:
-            "$5 discount applied automatically at checkout.",
+            "Takes $5 off your next order.",
         pointsCost: 1000,
         icon: "ph:tag-fill",
         voucherId:
@@ -236,9 +236,9 @@ export const REDEEM_REWARDS: RedeemReward[] = [
     },
     {
         id: "free-burger",
-        name: "Free Burger",
+        name: "Free Apex burger",
         description:
-            "Makes your Apex Trackside Burger free on your next order.",
+            "Takes the price of an Apex burger off your next order.",
         pointsCost: 1500,
         icon: "noto:hamburger",
 
@@ -247,9 +247,9 @@ export const REDEEM_REWARDS: RedeemReward[] = [
     },
     {
         id: "vip-pit-lane-pass",
-        name: "VIP Pit Lane Pass",
+        name: "Priority locker",
         description:
-            "Skip the queue — priority collection at any pit stop.",
+            "A reserved locker at any pod for the rest of the weekend.",
         pointsCost: 2000,
         icon: "ph:crown-fill",
         voucherId: null,

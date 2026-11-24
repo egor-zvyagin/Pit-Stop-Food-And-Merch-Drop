@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { db, OrderItemRecord, OrderRecord, InsufficientStockError } from '@/lib/db/client';
 import { Ed25519PassEngine, OrderPassPayload } from '@/lib/crypto/passEngine';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
-import { CATALOG_BY_ID } from '@/data/catalog';
+import { CATALOG_BY_ID, resolveOptionLabels } from '@/data/catalog';
 import { calculateOrderPricing } from '@/lib/pricing';
 import { CreateOrderSchema } from '@/lib/validation/schemas';
 import { createRateLimiter } from '@/lib/validation/rateLimit';
@@ -85,20 +85,22 @@ export async function POST(request: Request) {
       seatNote,
       ticketCode = 'GP-3820-X',
       promoCode,
-      circuitStatus,
     } = parsed.data;
 
     const chosenStationId = pickupStationId || stationId || 'M2';
 
-    // 1. Authoritative Pricing via calculateOrderPricing with live CircuitState
+    // 1. Authoritative pricing at the race flag the server holds. A flag sent
+    // by the client is ignored, so nobody can claim a post-race discount
+    // during a red flag.
     const activeCircuit = await db.getCircuitState();
-    const effectiveCircuit = circuitStatus || activeCircuit;
-    const pricing = calculateOrderPricing(items, promoCode, effectiveCircuit);
+    const pricing = calculateOrderPricing(items, promoCode, activeCircuit);
 
     // Standardize items with canonical catalog data
     const canonicalItems: OrderItemRecord[] = items.map((i) => {
       const rawId = i.itemId || i.id || i.sku || '';
       const catItem = CATALOG_BY_ID.get(rawId);
+      // Only options the catalogue defines for this item reach the kitchen.
+      const optionLabels = catItem ? resolveOptionLabels(catItem.id, i.options) : [];
       return {
         itemId: catItem ? catItem.id : rawId,
         name: catItem ? catItem.name : i.name || 'Concession Item',
@@ -106,6 +108,7 @@ export async function POST(request: Request) {
         unitPrice: catItem ? catItem.price : i.unitPrice ?? 0,
         sku: catItem ? catItem.id : rawId,
         image: catItem ? catItem.image : i.image,
+        ...(optionLabels.length > 0 ? { options: optionLabels } : {}),
       };
     });
 
@@ -156,7 +159,7 @@ export async function POST(request: Request) {
       pickupStationId: targetPod.id,
       pickupStationName: targetPod.name,
       counterNumber: lockerCounter,
-      walkTimeMins: targetPod.id === 'M1' ? 1 : targetPod.id === 'M2' ? 2 : 5,
+      walkTimeMins: targetPod.walkMins,
       qrPayload: signedPass.qrPayload,
       signatureBase64: signedPass.signatureBase64,
       status: 'RECEIVED',

@@ -124,7 +124,7 @@ export default function RewardsProvider({
                             points: typeof data.points === "number" ? data.points : (prev.points || 1850),
                             tier: {
                                 current: data.tier || "VIP FAN",
-                                next: data.tier === "VIP FAN" ? "PADDOCK CLUB" : "VIP FAN",
+                                next: data.tier === "VIP FAN" ? "GOLD" : "VIP FAN",
                                 nextTierPoints: data.tier === "VIP FAN" ? 5000 : 2000,
                             },
                             badges: serverBadges,

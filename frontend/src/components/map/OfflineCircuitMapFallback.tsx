@@ -56,16 +56,16 @@ export default function OfflineCircuitMapFallback({
   const getStatusColor = (podId: string) => {
     const station = stations?.find((s) => s.id === podId);
     if (station) {
-      if (station.status === "FASTEST" || station.status === "LOW QUEUE") return "#00D67A";
-      if (station.status === "MODERATE") return "#C8A800";
-      if (station.status === "HEAVY TRAFFIC") return "#E10600";
+      if (station.status === "FASTEST" || station.status === "LOW QUEUE") return "#3ccf7f";
+      if (station.status === "MODERATE") return "#ffb020";
+      if (station.status === "HEAVY TRAFFIC") return "#ff5a4e";
     }
     const defaultPod = PIT_STOPS.find((p) => p.id === podId);
     if (defaultPod) {
-      if (defaultPod.variant === "fastest" || defaultPod.variant === "lowQueue") return "#00D67A";
-      if (defaultPod.variant === "heavyTraffic") return "#E10600";
+      if (defaultPod.variant === "fastest" || defaultPod.variant === "lowQueue") return "#3ccf7f";
+      if (defaultPod.variant === "heavyTraffic") return "#ff5a4e";
     }
-    return "#00D67A";
+    return "#3ccf7f";
   };
 
   const getQueueTime = (podId: string) => {
@@ -113,8 +113,8 @@ export default function OfflineCircuitMapFallback({
       >
         <defs>
           <linearGradient id="trackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#E10600" />
-            <stop offset="100%" stopColor="#FF4A4A" />
+            <stop offset="0%" stopColor="#ffd100" />
+            <stop offset="100%" stopColor="#ffe36b" />
           </linearGradient>
           <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="2" result="blur" />
@@ -154,7 +154,7 @@ export default function OfflineCircuitMapFallback({
         <path
           d="M 70 140 L 90 90 L 150 45 L 250 35 L 320 70 L 330 115 L 290 155 L 200 170 L 100 165 Z"
           fill="none"
-          stroke="#E10600"
+          stroke="#ffd100"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -289,7 +289,7 @@ export default function OfflineCircuitMapFallback({
               onClick={() => onSelectPitStop(stop.id)}
               className={`flex items-center justify-center rounded-full transition-all duration-200 shadow-md ${
                 isSelected
-                  ? "w-8 h-8 bg-[var(--color-brand-primary)] text-white ring-4 ring-[#E10600]/40 font-black scale-110 z-20"
+                  ? "w-8 h-8 bg-[#ffd100] text-[#1d2125] ring-4 ring-[#ffd100]/40 font-black scale-110 z-20"
                   : "w-7 h-7 bg-[var(--color-surface)] border-2 text-[var(--color-text-primary)] hover:scale-105"
               }`}
               style={{
@@ -312,7 +312,7 @@ export default function OfflineCircuitMapFallback({
             <div
               className={`mt-1 whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-bold flex items-center gap-1 shadow pointer-events-none transition-all ${
                 isSelected
-                  ? "bg-[#E10600] text-white ring-2 ring-white/30"
+                  ? "bg-[#ffd100] text-[#1d2125] ring-2 ring-white/30"
                   : "bg-black/85 text-white border border-white/20"
               }`}
             >
@@ -331,7 +331,7 @@ export default function OfflineCircuitMapFallback({
       {/* Offline Mode Indicator Badge */}
       <div className="absolute top-2 left-2 bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-md text-[10px] font-medium text-amber-300 border border-amber-500/30 flex items-center gap-1.5 pointer-events-none shadow-md z-20">
         <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-        <span>{badgeLabel || "Offline Vector Fallback Active"}</span>
+        <span>{badgeLabel || "Simplified map, works offline"}</span>
       </div>
 
       {/* Expand/Collapse Toggle if onToggleExpand provided */}
@@ -339,7 +339,7 @@ export default function OfflineCircuitMapFallback({
         <button
           type="button"
           onClick={onToggleExpand}
-          className="absolute top-2 right-2 px-2.5 py-1 rounded-md bg-[var(--color-surface)]/90 backdrop-blur border border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] shadow-sm text-[11px] font-medium z-20 transition-colors"
+          className="absolute top-2 right-2 px-2.5 py-1 rounded-md bg-white/90 backdrop-blur border border-white/40 text-[#1d2125] hover:bg-white shadow-sm text-[11px] font-medium z-20 transition-colors"
           aria-label={isExpanded ? "Collapse map" : "Expand map"}
         >
           {isExpanded ? "Collapse" : "Expand"}

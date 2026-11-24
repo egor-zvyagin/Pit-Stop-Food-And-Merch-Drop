@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { Icon } from '@iconify/react';
+import { LogoMark } from '@/components/brand/Logo';
+import { Icon } from "@/components/ui/Icon";
 import { PIT_STOPS } from '@/data/pitStopConstantData';
 import { hasVerificationPublicKey, verifyQrPayload } from '@/lib/crypto/passVerifier';
 import { ensureVerificationPublicKey } from '@/lib/crypto/verifierKeyStore';
@@ -32,6 +33,7 @@ interface OrderSummary {
     name: string;
     quantity: number;
     unitPrice: number;
+    options?: string[];
   }>;
   total: number;
   qrPayload?: string;
@@ -110,21 +112,38 @@ export default function VendorTerminalPage() {
     }
   }, []);
 
-  const handleUnlock = (e: React.FormEvent) => {
+  const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
     const entered = pinInput.trim();
-    if (entered.length >= 4) {
-      setVendorPin(entered);
-      setIsUnlocked(true);
-      setPinError('');
-      try {
-        sessionStorage.setItem('pitstop_vendor_unlocked', 'true');
-        sessionStorage.setItem('pitstop_vendor_pin', entered);
-      } catch {
-        // Ignore
+    if (!entered) {
+      setPinError('Enter the staff PIN.');
+      return;
+    }
+    // Check the PIN with the server before unlocking, so a wrong PIN is
+    // caught here rather than as failed requests later.
+    try {
+      const res = await fetch('/api/orders', { headers: { 'X-Vendor-Pin': entered } });
+      if (res.status === 401) {
+        const body = await res.json().catch(() => null);
+        setPinError(
+          typeof body?.error === 'string' && body.error.includes('not configured')
+            ? 'Staff access is not set up on this server. Ask an administrator to set VENDOR_ACCESS_PIN.'
+            : 'That PIN is not right. Check with your shift lead.'
+        );
+        return;
       }
-    } else {
-      setPinError('Please enter a 4-digit staff PIN.');
+    } catch {
+      // Offline: unlock so passes can still be checked on this device. Any
+      // queued updates are sent, and checked, once the connection returns.
+    }
+    setVendorPin(entered);
+    setIsUnlocked(true);
+    setPinError('');
+    try {
+      sessionStorage.setItem('pitstop_vendor_unlocked', 'true');
+      sessionStorage.setItem('pitstop_vendor_pin', entered);
+    } catch {
+      // Ignore
     }
   };
 
@@ -582,55 +601,50 @@ export default function VendorTerminalPage() {
   // PIN Gate Screen
   if (!isUnlocked) {
     return (
-      <div className="min-h-screen bg-[#0B0E14] text-white flex flex-col items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-2xl border border-neutral-800 bg-[#121620] p-8 shadow-2xl text-center space-y-6">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-600/20 text-red-500 border border-red-500/30">
-            <Icon icon="mdi:shield-lock-outline" width={36} height={36} />
-          </div>
-
-          <div>
-            <h1 className="font-display font-black text-2xl uppercase tracking-wider text-white">
-              Staff Kiosk Terminal
-            </h1>
-            <p className="text-sm text-neutral-400 mt-1">
-              Albert Park Trackside Concession Logistics
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-neutral-900/80 border border-neutral-800 p-3 text-xs text-neutral-300">
-            <span className="font-bold text-amber-400">DEMO ACCESS:</span> Default staff PIN is{' '}
-            <span className="font-mono font-bold text-white bg-neutral-800 px-2 py-0.5 rounded border border-neutral-700">
-              2026
-            </span>
-          </div>
-
-          <form onSubmit={handleUnlock} className="space-y-4">
+      <div className="min-h-screen bg-[#15181b] text-white flex flex-col items-center justify-center p-6">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="flex items-center gap-3">
+            <LogoMark size={44} />
             <div>
-              <input
-                type="password"
-                maxLength={6}
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                placeholder="Enter 4-digit PIN"
-                className="w-full text-center text-2xl font-mono tracking-[0.5em] rounded-xl border border-neutral-700 bg-neutral-900 px-4 py-3 text-white placeholder:tracking-normal placeholder:text-neutral-600 focus:border-red-500 focus:outline-none"
-                autoFocus
-              />
-              {pinError && <p className="text-xs text-red-400 font-semibold mt-2">{pinError}</p>}
+              <h1 className="font-display text-[28px] font-extrabold leading-none">Staff terminal</h1>
+              <p className="mt-1 text-[14px] text-neutral-400">Pit Stop lockers, Albert Park</p>
             </div>
+          </div>
 
+          <form onSubmit={handleUnlock} className="space-y-3">
+            <label htmlFor="staff-pin" className="block text-[14px] font-medium text-neutral-300">
+              Staff PIN
+            </label>
+            <input
+              id="staff-pin"
+              type="password"
+              inputMode="text"
+              autoComplete="current-password"
+              maxLength={64}
+              value={pinInput}
+              onChange={(e) => setPinInput(e.target.value)}
+              placeholder="Enter the staff PIN"
+              aria-invalid={Boolean(pinError)}
+              aria-describedby={pinError ? "pin-error" : "pin-help"}
+              className="w-full rounded-[10px] border border-[#353b42] bg-[#1d2125] px-4 py-3 text-[20px] tracking-[0.3em] text-white placeholder:text-[15px] placeholder:tracking-normal placeholder:text-neutral-500 focus:border-[#ffd100] focus:outline-none"
+              autoFocus
+            />
+            {pinError ? (
+              <p id="pin-error" className="text-[14px] font-medium text-[#ff8a80]">{pinError}</p>
+            ) : (
+              <p id="pin-help" className="text-[13px] text-neutral-500">Your shift lead has the PIN. It is never shown on this screen.</p>
+            )}
             <button
               type="submit"
-              className="w-full rounded-xl bg-red-600 py-3 font-display font-bold uppercase tracking-wider text-white hover:bg-red-700 transition-colors shadow-lg shadow-red-600/30"
+              className="h-12 w-full rounded-[10px] bg-[#ffd100] text-[16px] font-semibold text-[#1d2125] hover:bg-[#f0c200] transition-colors"
             >
-              Unlock Terminal
+              Unlock terminal
             </button>
           </form>
 
-          <div className="pt-2">
-            <Link href="/" className="text-xs text-neutral-500 hover:text-neutral-300 transition-colors">
-              ← Return to Consumer Fan Store
-            </Link>
-          </div>
+          <Link href="/" className="inline-block text-[14px] text-neutral-400 underline underline-offset-2 hover:text-white">
+            Back to the fan app
+          </Link>
         </div>
       </div>
     );
@@ -668,26 +682,24 @@ export default function VendorTerminalPage() {
       {/* Top Staff Navigation Header */}
       <header className="border-b border-neutral-800 bg-[#121620] px-6 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white font-display font-black text-xl">
-            PS
-          </div>
+          <LogoMark size={40} />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-display font-black text-lg uppercase tracking-wider text-white">
-                Pit Stop Staff Terminal
+              <h1 className="font-display font-black text-lg text-white">
+                Pit Stop staff terminal
               </h1>
               <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
-                ACTIVE KIOSK
+                Active
               </span>
               {airplaneMode && (
                 <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/30 flex items-center gap-1">
                   <Icon icon="mdi:airplane" width={12} height={12} />
-                  AIRPLANE MODE
+                  Airplane Mode
                 </span>
               )}
             </div>
             <p className="text-xs text-neutral-400">
-              Station {selectedStation} • Offline Asymmetric Ed25519 Verifier
+              Pod {selectedStation}, passes checked on this device
             </p>
           </div>
         </div>
@@ -701,7 +713,7 @@ export default function VendorTerminalPage() {
                 onClick={() => setSelectedStation(stop.id)}
                 className={`rounded-lg px-3 py-1.5 font-display text-xs font-bold transition-all ${
                   selectedStation === stop.id
-                    ? 'bg-red-600 text-white shadow'
+                    ? 'bg-[#ffd100] text-[#1d2125] shadow'
                     : 'text-neutral-400 hover:text-white'
                 }`}
               >
@@ -761,7 +773,7 @@ export default function VendorTerminalPage() {
               <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Icon icon="mdi:qrcode-scan" width={22} height={22} className="text-red-500" />
-                  <h2 className="font-display font-black text-lg uppercase tracking-wider text-white">
+                  <h2 className="font-display font-black text-lg text-white">
                     Pass Verification Engine
                   </h2>
                 </div>
@@ -774,7 +786,7 @@ export default function VendorTerminalPage() {
                   <button
                     type="button"
                     onClick={startScanner}
-                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 font-display font-bold text-sm uppercase tracking-wider text-white transition-colors"
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 py-3 font-display font-bold text-sm text-white transition-colors"
                   >
                     <Icon icon="mdi:camera" width={20} height={20} className="text-red-400" />
                     <span>Start Camera QR Scanner</span>
@@ -788,7 +800,7 @@ export default function VendorTerminalPage() {
                     <button
                       type="button"
                       onClick={stopScanner}
-                      className="w-full rounded-xl bg-neutral-800 border border-neutral-700 py-2 text-xs font-bold uppercase tracking-wider text-neutral-300 hover:text-white"
+                      className="w-full rounded-xl bg-neutral-800 border border-neutral-700 py-2 text-xs font-bold text-neutral-300 hover:text-white"
                     >
                       Close Camera Scanner
                     </button>
@@ -801,7 +813,7 @@ export default function VendorTerminalPage() {
 
               {/* Manual QR / Numeric Input Form */}
               <form onSubmit={handleVerifyPass} className="space-y-3">
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400">
+                <label className="block text-xs font-bold text-neutral-400">
                   Scan Pass Payload (AGPC1.*) or 4-Digit Pickup PIN
                 </label>
                 <div className="flex gap-2">
@@ -815,7 +827,7 @@ export default function VendorTerminalPage() {
                   <button
                     type="submit"
                     disabled={loading || !passInput.trim()}
-                    className="rounded-xl bg-red-600 px-5 py-2.5 font-display font-bold text-sm uppercase tracking-wider text-white hover:bg-red-700 disabled:opacity-50 transition-colors shrink-0"
+                    className="rounded-xl bg-[#ffd100] px-5 py-2.5 font-semibold text-sm text-[#1d2125] hover:bg-[#f0c200] disabled:opacity-50 transition-colors shrink-0"
                   >
                     {loading ? 'Verifying...' : 'Verify'}
                   </button>
@@ -824,7 +836,7 @@ export default function VendorTerminalPage() {
 
               {/* Quick Demo Test Payloads */}
               <div className="pt-2 border-t border-neutral-800">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-2">
+                <div className="text-[11px] font-bold text-neutral-500 mb-2">
                   Quick Verification Test Payloads
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -879,7 +891,7 @@ export default function VendorTerminalPage() {
                     {badgeState === 'VALID' && (
                       <>
                         <Icon icon="mdi:shield-check" width={22} height={22} className="text-emerald-400" />
-                        <span className="font-display font-black text-sm uppercase tracking-wider text-emerald-400">
+                        <span className="font-display font-black text-sm text-emerald-400">
                           Ed25519 Valid
                         </span>
                       </>
@@ -887,7 +899,7 @@ export default function VendorTerminalPage() {
                     {badgeState === 'REPLAY_DETECTED' && (
                       <>
                         <Icon icon="mdi:shield-alert" width={22} height={22} className="text-amber-400" />
-                        <span className="font-display font-black text-sm uppercase tracking-wider text-amber-400">
+                        <span className="font-display font-black text-sm text-amber-400">
                           Replay Detected
                         </span>
                       </>
@@ -895,7 +907,7 @@ export default function VendorTerminalPage() {
                     {badgeState === 'INVALID' && (
                       <>
                         <Icon icon="mdi:shield-remove" width={22} height={22} className="text-red-400" />
-                        <span className="font-display font-black text-sm uppercase tracking-wider text-red-400">
+                        <span className="font-display font-black text-sm text-red-400">
                           Ed25519 Invalid
                         </span>
                       </>
@@ -903,7 +915,7 @@ export default function VendorTerminalPage() {
                     {badgeState === 'NUMERIC_FALLBACK' && (
                       <>
                         <Icon icon="mdi:numeric" width={22} height={22} className="text-blue-400" />
-                        <span className="font-display font-black text-sm uppercase tracking-wider text-blue-400">
+                        <span className="font-display font-black text-sm text-blue-400">
                           Numeric Fallback
                         </span>
                       </>
@@ -927,15 +939,15 @@ export default function VendorTerminalPage() {
               <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-3">
                   <div>
-                    <span className="font-mono text-xs font-bold text-red-400">{activeOrder.orderId}</span>
-                    <h3 className="font-display font-black text-xl uppercase tracking-wider text-white">
+                    <span className="font-mono text-xs font-bold text-neutral-400">{activeOrder.orderId}</span>
+                    <h3 className="font-display font-black text-xl text-white">
                       Pickup PIN: {activeOrder.pinCode}
                     </h3>
                   </div>
 
                   <div className="text-right">
                     <span
-                      className={`inline-block rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+                      className={`inline-block rounded-full px-3 py-1 text-xs font-bold ${
                         activeOrder.status === 'COMPLETED'
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                           : activeOrder.status === 'READY_FOR_PICKUP'
@@ -943,7 +955,7 @@ export default function VendorTerminalPage() {
                           : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                       }`}
                     >
-                      {activeOrder.status === 'READY_FOR_PICKUP' ? 'READY FOR PICKUP' : activeOrder.status.replace(/_/g, ' ')}
+                      {activeOrder.status === 'READY_FOR_PICKUP' ? 'Ready for pickup' : activeOrder.status === 'PREPARING' ? 'Preparing' : activeOrder.status === 'COMPLETED' ? 'Collected' : 'Received'}
                     </span>
                     <div className="text-xs text-neutral-400 mt-1 font-mono">
                       Locker: {activeOrder.station.lockerNumber}
@@ -953,13 +965,18 @@ export default function VendorTerminalPage() {
 
                 {/* Order Items List */}
                 <div className="space-y-2">
-                  <div className="text-xs font-bold uppercase tracking-wider text-neutral-400">Order Items</div>
+                  <div className="text-xs font-bold text-neutral-400">Order Items</div>
                   <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3 divide-y divide-neutral-800">
                     {activeOrder.items.map((item, idx) => (
                       <div key={idx} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between text-sm">
                         <div className="font-medium text-white">
-                          <span className="font-bold text-red-400 mr-2">{item.quantity}×</span>
+                          <span className="font-bold text-[#ffd100] mr-2">{item.quantity}×</span>
                           {item.name}
+                          {item.options && item.options.length > 0 && (
+                            <span className="ml-2 rounded bg-[#ffd100]/15 px-1.5 py-0.5 text-xs font-semibold text-[#ffd100]">
+                              {item.options.join(', ')}
+                            </span>
+                          )}
                         </div>
                         <div className="font-mono font-bold text-neutral-300">
                           ${(item.unitPrice * item.quantity).toFixed(2)}
@@ -967,7 +984,7 @@ export default function VendorTerminalPage() {
                       </div>
                     ))}
                     <div className="pt-2 flex items-center justify-between font-bold text-sm">
-                      <span className="text-neutral-400 uppercase">Total Value</span>
+                      <span className="text-neutral-400">Total Value</span>
                       <span className="font-mono text-amber-400">${activeOrder.total.toFixed(2)}</span>
                     </div>
                   </div>
@@ -975,7 +992,7 @@ export default function VendorTerminalPage() {
 
                 {/* Quick Action Buttons */}
                 <div className="pt-2 border-t border-neutral-800 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-400">
+                  <div className="flex items-center justify-between text-xs font-bold text-neutral-400">
                     <span>Quick Lifecycle Actions</span>
                     {airplaneMode && (
                       <span className="text-amber-400 font-mono text-[10px]">
@@ -988,7 +1005,7 @@ export default function VendorTerminalPage() {
                       type="button"
                       disabled={actionLoading || activeOrder.status === 'PREPARING'}
                       onClick={() => handleStatusAdvance('PREPARING')}
-                      className="rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-amber-300 disabled:opacity-40 transition-colors"
+                      className="rounded-xl border border-amber-500/40 bg-amber-950/30 hover:bg-amber-900/50 py-2.5 font-display font-bold text-xs text-amber-300 disabled:opacity-40 transition-colors"
                     >
                       Start Preparing
                     </button>
@@ -996,7 +1013,7 @@ export default function VendorTerminalPage() {
                       type="button"
                       disabled={actionLoading || activeOrder.status === 'READY_FOR_PICKUP'}
                       onClick={() => handleStatusAdvance('READY_FOR_PICKUP')}
-                      className="rounded-xl border border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-blue-300 disabled:opacity-40 transition-colors"
+                      className="rounded-xl border border-blue-500/40 bg-blue-950/30 hover:bg-blue-900/50 py-2.5 font-display font-bold text-xs text-blue-300 disabled:opacity-40 transition-colors"
                     >
                       Mark Ready
                     </button>
@@ -1004,7 +1021,7 @@ export default function VendorTerminalPage() {
                       type="button"
                       disabled={actionLoading || activeOrder.status === 'COMPLETED'}
                       onClick={() => handleStatusAdvance('COMPLETED')}
-                      className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-900/50 py-2.5 font-display font-bold text-xs uppercase tracking-wider text-emerald-300 disabled:opacity-40 transition-colors shadow-lg shadow-emerald-950/50"
+                      className="rounded-xl border border-emerald-500/40 bg-emerald-950/30 hover:bg-emerald-900/50 py-2.5 font-display font-bold text-xs text-emerald-300 disabled:opacity-40 transition-colors shadow-lg shadow-emerald-950/50"
                     >
                       Complete Collection
                     </button>
@@ -1024,7 +1041,7 @@ export default function VendorTerminalPage() {
               <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Icon icon="mdi:tray-full" width={20} height={20} className="text-neutral-400" />
-                  <h3 className="font-display font-black text-base uppercase tracking-wider text-white">
+                  <h3 className="font-display font-black text-base text-white">
                     Station {selectedStation} Queue ({stationOrders.length})
                   </h3>
                 </div>
@@ -1067,7 +1084,7 @@ export default function VendorTerminalPage() {
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-xs font-bold text-red-400">{ord.orderId}</span>
                         <span
-                          className={`text-[10px] font-bold uppercase rounded px-1.5 py-0.5 ${
+                          className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
                             ord.status === 'COMPLETED'
                               ? 'bg-emerald-500/20 text-emerald-400'
                               : ord.status === 'READY_FOR_PICKUP'

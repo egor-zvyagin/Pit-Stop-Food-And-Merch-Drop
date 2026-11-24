@@ -2,154 +2,112 @@ import { test, expect } from '@playwright/test';
 import { E2E_VENDOR_PIN } from './testEnv';
 
 /**
- * Pit Stop v3.0: Dual-Persona Trackside End-to-End Suite
- * 1. Mobile Fan Flow:
- *    - Loads / with 0 console errors
- *    - Toggles Trackside Simulation & selects Grandstand preset
- *    - Navigates to /order, confirms stock pills & photographic assets
- *    - Adds item to cart, proceeds to /checkout
- *    - Toggles Group Order & fills seat note
- *    - Places order, verifies Ed25519 digital pass / locker reservation
- *    - Clicks Share Live Tracker, navigates to /track/[orderId], asserts zero-secret tracking
- *    - Checks Order History tab on /collect
+ * Pit Stop end-to-end suite, run on a phone and a tablet/desktop viewport.
  *
- * 2. Tablet Kiosk Vendor Flow:
- *    - Navigates to /vendor
- *    - Unlocks with the staff PIN configured for the test server
- *    - Asserts 8-bay Locker Grid and Telemetry Bar render
- *    - Toggles Race Control flag
- *    - Enables Airplane Mode Simulator, marks order complete, asserts Pending Cloud Sync increases
- *    - Toggles Airplane Mode OFF, asserts auto-sync fires and queue clears
+ * 1. Fan flow: menu, item options, cart, checkout with a group note, the
+ *    pickup board with PIN, the public tracker (which must not expose the
+ *    PIN or QR payload) and past orders.
+ * 2. Pickup map: location simulation and pod list.
+ * 3. Staff terminal: PIN check, locker grid, race control and the offline
+ *    outbox.
+ * 4. Offline app shell.
  */
 
-test.describe('Pit Stop v3.0: Mobile Fan Flow', () => {
-  test('spectator completes end-to-end order with group note, digital pass, zero-secret tracker & history', async ({ page }) => {
-    // 1. Loads / without severe console errors
+test.describe('Fan ordering flow', () => {
+  test('orders with kitchen options, collects a PIN, shares a tracker that hides secrets, and sees past orders', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        const text = msg.text();
-        // Ignore known benign telemetry/hydration/network warnings
-        if (
-          !text.includes('favicon.ico') &&
-          !text.includes('MapLibre') &&
-          !text.includes('WebGL') &&
-          !text.includes('ExpiredToken')
-        ) {
-          consoleErrors.push(text);
-        }
+      if (msg.type() !== 'error') return;
+      const text = msg.text();
+      // Map tiles come from an external host that may be unreachable.
+      if (!text.includes('favicon.ico') && !text.includes('MapLibre') && !text.includes('WebGL')) {
+        consoleErrors.push(text);
       }
     });
 
+    // 1. The menu is the home screen.
     await page.goto('/');
     await expect(page).toHaveTitle(/Pit Stop/i);
-    expect(consoleErrors).toHaveLength(0);
+    await expect(page.getByRole('heading', { name: 'Food', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Apex burger' })).toBeVisible();
+    await expect(page.locator('img[src*="images"], img[src*="%2Fimages%2F"]').first()).toBeVisible();
 
-    // 2. Toggles Trackside Simulation and selects a Grandstand preset
-    const simulateBtn = page.getByRole('button', { name: /Simulate Trackside|Simulate/i }).first();
-    if (await simulateBtn.isVisible()) {
-      await simulateBtn.click();
-    }
+    // 2. An item with options opens its sheet; a plain item adds at once.
+    await page.getByRole('button', { name: 'Choose options for Apex burger' }).click();
+    const sheet = page.getByRole('dialog', { name: 'Apex burger' });
+    await expect(sheet.getByText(/Contains gluten/i)).toBeVisible();
+    await sheet.getByText('No pickles').click();
+    await sheet.getByRole('button', { name: /Add to order/ }).click();
+    await expect(sheet).toBeHidden();
+    await page.getByRole('button', { name: 'Add Volt energy drink' }).click();
 
-    // Select Grandstand Preset (e.g. Clark or Fangio)
-    const presetBtn = page.getByRole('button', { name: /Clark|Fangio|Brabham/i }).first();
-    if (await presetBtn.isVisible()) {
-      await presetBtn.click();
-    }
+    // 3. Open the order from the header and go to checkout.
+    await page.getByRole('button', { name: /Your order, 2 items/ }).click();
+    const cart = page.getByRole('dialog', { name: 'Your order' });
+    await expect(cart.getByText('No pickles')).toBeVisible();
+    await cart.getByRole('link', { name: /Go to checkout/ }).click();
+    await expect(page).toHaveURL(/\/checkout/);
 
-    // 3. Navigates to /order, confirms stock pills and photographic images render
-    await page.goto('/order');
-    await expect(page.locator('text=PIT STOP FUEL & GEAR')).toBeVisible();
+    // 4. Checkout: group note and simulated payment.
+    await expect(page.getByRole('heading', { name: 'Checkout' })).toBeVisible();
+    await expect(page.getByText('Payment is simulated.')).toBeVisible();
+    await page.getByRole('switch', { name: 'Group order' }).click();
+    await page.getByLabel(/Seats/).fill('Clark stand, row H, seats 14 to 16');
+    await page.getByRole('button', { name: /Place order/ }).click();
 
-    // Confirm photographic assets render
-    const menuImages = page.locator('img[src*="images"], img[src*="%2Fimages%2F"]');
-    await expect(menuImages.first()).toBeVisible();
+    // 5. The Orders screen shows the pit board with the pickup PIN.
+    await expect(page).toHaveURL(/\/collect/);
+    await expect(page.getByText('Pickup PIN')).toBeVisible();
+    const refText = await page.getByText(/Ref GP-2026-[A-Z0-9]{6}/).first().textContent();
+    const orderId = refText?.match(/GP-2026-[A-Z0-9]{6}/)?.[0];
+    expect(orderId).toBeTruthy();
 
-    // Confirm stock pills or item cards render
-    await expect(page.getByText('APEX BURGER').first()).toBeVisible();
-
-    // 4. Adds item to cart, goes to /checkout
-    const addButton = page.getByRole('button', { name: /\+|Add to Order|Add/i }).first();
-    await addButton.click();
-
-    // Review Order button appears with item count
-    const reviewOrderBtn = page.getByRole('button', { name: /Review Order/i });
-    await expect(reviewOrderBtn).toBeVisible();
-    await reviewOrderBtn.click();
-
-    await expect(page).toHaveURL(/.*checkout/);
-
-    // 5. Checks Group Order toggle and fills in a seat note
-    const groupOrderSwitch = page.getByRole('switch', { name: /Group Order/i });
-    if (await groupOrderSwitch.isVisible()) {
-      await groupOrderSwitch.click();
-      const seatNoteInput = page.getByPlaceholder(/Clark Stand|Seat/i);
-      await expect(seatNoteInput).toBeVisible();
-      await seatNoteInput.fill('Clark Stand Row H, Seats 14-16');
-    }
-
-    // 6. Places order, verifies redirect to /collect or /pass with Ed25519 pass
-    const placeOrderBtn = page.getByRole('button', { name: /PLACE ORDER/i });
-    await expect(placeOrderBtn).toBeEnabled();
-    await placeOrderBtn.click();
-
-    // Redirects to /collect or /pass
-    await expect(page).toHaveURL(/.*(collect|pass)/);
-
-    // 7. Clicks Share Live Tracker, navigates to /track/[orderId], asserts status stepper renders and NO QR/PIN is exposed
-    const shareTrackerBtn = page.getByRole('button', { name: /Share Live Tracker/i });
-    if (await shareTrackerBtn.isVisible()) {
-      await shareTrackerBtn.click();
-    }
-
-    // Extract order reference from the page or navigate to tracking
-    const orderRefLocator = page.locator('text=/GP-2026-[A-Z0-9]{6}/').first();
-    let orderId = 'GP-2026-X9K2P4';
-    try {
-      await orderRefLocator.waitFor({ state: 'visible', timeout: 5000 });
-      const text = await orderRefLocator.textContent();
-      const match = text?.match(/GP-2026-[A-Z0-9]{6}/);
-      if (match) orderId = match[0];
-    } catch {
-      // Fall back to pre-seeded sample order
-    }
-
+    // 6. The public tracker shows progress but never the PIN or QR payload.
     await page.goto(`/track/${orderId}`);
-    // Status stepper must render
-    await expect(
-      page.locator('text=/Order Received|Kitchen Preparing|Ready at Locker|Collected/i').first()
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Order tracker' })).toBeVisible();
+    await expect(page.getByText(/Order received|Being prepared|Ready|Collected/).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Clark stand, row H, seats 14 to 16')).toBeVisible();
+    const publicHtml = await page.content();
+    expect(publicHtml).not.toContain('AGPC1.');
+    expect(publicHtml).not.toContain('signatureBase64');
+    expect(publicHtml).not.toContain('Pickup PIN');
 
-    // ZERO-SECRET ASSERTION: Ensure no Ed25519 QR payload or 4-digit PIN is displayed on the public tracking page
-    const pageContent = await page.content();
-    expect(pageContent).not.toContain('AGPC1.');
-    expect(pageContent).not.toContain('signatureBase64');
-
-    // 8. Checks Order History tab on /collect and verifies past orders render
+    // 7. Past orders come from the server.
     await page.goto('/collect');
-    const historyTab = page.getByRole('button', { name: /Order History/i });
-    await expect(historyTab).toBeVisible();
-    await historyTab.click();
+    await page.getByRole('tab', { name: 'Past orders' }).click();
+    await expect(page.getByText(new RegExp(`ref ${orderId}`))).toBeVisible();
 
-    // Verify past orders render in history
-    await expect(
-      page.locator('text=/GP-2026|Order Reference|Reorder/i').first()
-    ).toBeVisible();
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('pickup map ranks pods and can simulate a trackside location', async ({ page }) => {
+    await page.goto('/map');
+    await expect(page.getByRole('heading', { name: 'Pickup map' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Turn 9/ }).first()).toBeVisible();
+
+    await page.getByRole('button', { name: /Simulate being at the track/ }).click();
+    await expect(page.getByText('Simulated location')).toBeVisible();
+    await page.getByRole('button', { name: /Fangio stand/ }).click();
+    await expect(page.getByText('Walk times from where you are now.')).toBeVisible();
   });
 });
 
-test.describe('Pit Stop v3.0: Tablet Kiosk Vendor Flow', () => {
+test.describe('Staff terminal', () => {
   test('vendor staff unlocks terminal, views 8-bay lockers, toggles race control, and tests airplane mode sync', async ({ page }) => {
     // 1. Navigates to /vendor
     await page.goto('/vendor');
 
     // 2. Unlocks with the staff PIN the test server was started with
-    const pinInput = page.getByPlaceholder(/Enter 4-digit PIN/i);
+    const pinInput = page.getByLabel('Staff PIN');
     await expect(pinInput).toBeVisible();
-    await pinInput.fill(E2E_VENDOR_PIN);
 
-    const unlockBtn = page.getByRole('button', { name: /Unlock Terminal/i });
-    await unlockBtn.click();
+    // A wrong PIN is rejected by the server before the terminal opens.
+    await pinInput.fill(`${E2E_VENDOR_PIN}-wrong`);
+    await page.getByRole('button', { name: /Unlock terminal/i }).click();
+    await expect(page.getByText(/That PIN is not right/)).toBeVisible();
+
+    await pinInput.fill(E2E_VENDOR_PIN);
+    await page.getByRole('button', { name: /Unlock terminal/i }).click();
 
     // 3. Asserts 8-bay Locker Grid and Telemetry Bar render
     await expect(page.locator('text=/Smart Locker Bays/i')).toBeVisible();
@@ -204,7 +162,7 @@ test.describe('Pit Stop: Offline app shell', () => {
       await navigator.serviceWorker.ready;
     });
     await page.waitForFunction(async () => {
-      const cache = await caches.open('pitstop-cache-v2');
+      const cache = await caches.open('pitstop-cache-v3');
       return Boolean(await cache.match('/vendor'));
     });
     // Second load is served through the worker, which caches the JS and CSS
@@ -218,7 +176,7 @@ test.describe('Pit Stop: Offline app shell', () => {
 
     await page.goto('/');
     await expect(page).toHaveTitle(/Pit Stop/i);
-    await expect(page.getByRole('button', { name: /Simulate Trackside|Simulate/i }).first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Apex burger' })).toBeVisible();
 
     await page.goto('/vendor');
     await expect(page.getByPlaceholder(/PIN/i).first()).toBeVisible();

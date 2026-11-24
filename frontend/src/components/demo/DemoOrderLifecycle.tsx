@@ -6,57 +6,79 @@ import { useOrder } from "@/components/order/OrderProvider";
 import { COLLECT_STATUS, CollectStatus } from "@/data/collectConstantData";
 import { DEMO_ORDER_STATUS_DELAY_MS } from "@/data/demoConstantData";
 
+const RANK: Record<string, number> = {
+  [COLLECT_STATUS.RECEIVED]: 1,
+  [COLLECT_STATUS.PREPARING]: 2,
+  [COLLECT_STATUS.READY]: 3,
+  [COLLECT_STATUS.COMPLETED]: 4,
+};
+
+function fromServer(raw: string): CollectStatus | null {
+  switch (raw.toUpperCase()) {
+    case "RECEIVED":
+      return COLLECT_STATUS.RECEIVED;
+    case "PREPARING":
+      return COLLECT_STATUS.PREPARING;
+    case "READY":
+    case "READY_FOR_PICKUP":
+      return COLLECT_STATUS.READY;
+    case "COMPLETED":
+    case "COLLECTED":
+      return COLLECT_STATUS.COMPLETED;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Keeps the active order's status current.
+ *
+ * 1. Polls the server, so updates made on the staff terminal appear here.
+ *    Status only moves forward, never back.
+ * 2. In Demo Mode, also advances the order on a timer so the whole flow can
+ *    be shown without anyone working the staff terminal.
+ */
 export default function DemoOrderLifecycle() {
-    const { demoMode } = useDemoMode();
-    const { activeOrder, updateActiveOrderStatus } = useOrder();
+  const { demoMode } = useDemoMode();
+  const { activeOrder, updateActiveOrderStatus } = useOrder();
 
-    // 1. Real Backend Status Polling
-    useEffect(() => {
-        if (!activeOrder?.reference) return;
+  const orderId = activeOrder?.orderId || activeOrder?.reference;
+  const status = activeOrder?.status;
+  const isLocal = Boolean(activeOrder?.isLocalDemo);
 
-        const pollStatus = async () => {
-            try {
-                const res = await fetch(`/api/orders/${activeOrder.reference}/status`);
-                const data = await res.json();
-                if (data.success && data.data) {
-                    const serverStatus = data.data.status;
-                    if (serverStatus === 'READY_FOR_PICKUP' && activeOrder.status !== COLLECT_STATUS.READY) {
-                        updateActiveOrderStatus(COLLECT_STATUS.READY);
-                    } else if (serverStatus === 'COMPLETED' && activeOrder.status !== COLLECT_STATUS.COMPLETED) {
-                        updateActiveOrderStatus(COLLECT_STATUS.COMPLETED);
-                    }
-                }
-            } catch {
-                // Ignore network polling hiccups
-            }
-        };
+  useEffect(() => {
+    if (!orderId || isLocal || status === COLLECT_STATUS.COMPLETED) return;
 
-        const interval = setInterval(pollStatus, 2500);
-        return () => clearInterval(interval);
-    }, [activeOrder?.reference, activeOrder?.status, updateActiveOrderStatus]);
-
-    // 2. Demo Mode automated progression fallback
-    useEffect(() => {
-        if (!demoMode || !activeOrder) return;
-
-        let nextStatus: CollectStatus | null = null;
-
-        if (activeOrder.status === COLLECT_STATUS.RECEIVED) {
-            nextStatus = COLLECT_STATUS.PREPARING;
-        } else if (activeOrder.status === COLLECT_STATUS.PREPARING) {
-            nextStatus = COLLECT_STATUS.READY;
+    const poll = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        const next = json.success && json.data?.status ? fromServer(String(json.data.status)) : null;
+        if (next && (RANK[next] ?? 0) > (RANK[status ?? ""] ?? 0)) {
+          updateActiveOrderStatus(next);
         }
+      } catch {
+        // No signal: keep the last known status.
+      }
+    };
 
-        if (!nextStatus) return;
+    void poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [orderId, status, isLocal, updateActiveOrderStatus]);
 
-        const timer = window.setTimeout(() => {
-            updateActiveOrderStatus(nextStatus);
-        }, DEMO_ORDER_STATUS_DELAY_MS);
+  useEffect(() => {
+    if (!demoMode || !status) return;
+    let next: CollectStatus | null = null;
+    if (status === COLLECT_STATUS.RECEIVED) next = COLLECT_STATUS.PREPARING;
+    else if (status === COLLECT_STATUS.PREPARING) next = COLLECT_STATUS.READY;
+    if (!next) return;
+    const target = next;
+    const timer = window.setTimeout(() => updateActiveOrderStatus(target), DEMO_ORDER_STATUS_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [demoMode, status, updateActiveOrderStatus]);
 
-        return () => {
-            window.clearTimeout(timer);
-        };
-    }, [demoMode, activeOrder, updateActiveOrderStatus]);
-
-    return null;
+  return null;
 }

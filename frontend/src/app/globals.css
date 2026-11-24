@@ -2,93 +2,201 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Pit Stop design tokens.
+ *
+ * The palette is taken from the pit wall rather than from any team: asphalt
+ * for ink, pit-lane concrete for the page, and the hi-vis yellow of a pit
+ * board and a marshal's vest for the one thing to do next. Flag colours carry
+ * meaning (green: ready, amber: safety car, red: problem) and are never
+ * used as decoration. The app is built for daylight, so it has one light
+ * theme with strong contrast.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 
-  /* Surfaces */
-  --color-page-background: #F5F5F7;
-  --color-surface: #FFFFFF;
-  --color-surface-selected: #FFF5F5;
+  --ink: #1d2125;
+  --ink-2: #353b42;
+  --muted: #5c636d;
+  --line: #d9dcd8;
+  --line-strong: #b9beb8;
+  --concrete: #eceeea;
+  --surface: #ffffff;
+  --surface-sunk: #f5f6f3;
 
-  /* Borders */
-  --color-border: #E5E5EA;
+  --hivis: #ffd100;
+  --hivis-deep: #f0c200;
+  --hivis-soft: #fff6c7;
 
-  /* Text */
-  --color-text-primary: #050505;
-  --color-text-muted: #6B6B72;
-  --color-text-on-primary: #FFFFFF;
+  --go: #0f7b45;
+  --go-soft: #e2f1e8;
+  --caution: #94600a;
+  --caution-soft: #fff0d4;
+  --stop: #c3261c;
+  --stop-soft: #fbe6e3;
+  --you: #2563eb;
 
-  /* Brand Actions */
-  --color-brand-primary: #E10600;
-  --color-action-disabled: #CCCCCC;
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
 
-  /* Status */
-  --color-status-success: #00D67A;
-  --color-status-danger: #FF3B30;
-  --color-status-info: #2F80FF;
-  --color-status-warning: #C8A800;
-  --color-status-neutral: #6B6B72;
-  --color-voucher-applied-text: #166534;
+  --app-header-height: 56px;
+  --bottom-nav-height: 64px;
+  --cart-bar-height: 64px;
 
-  /* Status backgrounds - 10% */
-  --color-status-success-bg: rgb(0 214 122 / 10%);
-  --color-status-danger-bg: rgb(255 59 48 / 10%);
-  --color-status-info-bg: rgb(47 128 255 / 10%);
-  --color-status-warning-bg: rgb(200 168 0 / 10%);
-  --color-status-brand-bg: rgb(225 6 0 / 10%);
-  --color-status-neutral-bg: rgb(107 107 114 / 10%);
-
-  /* Map */
-  --color-track-background: #EAEAEC;
-  --color-track-line: #D0D0D5;
-
-  /* Widths */
-  --app-max-width: 430px;
-  --app-header-height: 57px;
-  --bottom-nav-height: 82px;
-
-  /* Collect warning states */
-  --color-status-warning-surface: #FFFBEB;
-  --color-status-warning-text: #7A5800;
-  --color-status-warning-muted: #A07000;
-
-  /* Collect success states */
-  --color-status-success-surface: #F0FDF4;
-  --color-status-success-text: #166534;
-  --color-status-success-muted: #16A34A;
-  --color-status-success-soft-border: #BBF7D0;
-
-  /* Rewards */
-  --color-rewards-progress: #2F80FF;
-
-  --color-rewards-progress-surface: rgba(47, 128, 255, 0.09);
-  --color-rewards-progress-border: rgba(47, 128, 255, 0.25);
-
-  --color-rewards-earned-surface: rgba(225, 6, 0, 0.09);
-  --color-rewards-earned-border: rgba(225, 6, 0, 0.25);
-
-  /* Reward completion callout */
-  --color-reward-background: #FFF9E6;
-  --color-reward-border: #F0D060;
-  --color-reward-text: #7A5800;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Legacy names, mapped onto the new palette so screens that still use
+     them (vendor terminal, rewards) pick up the new look. */
+  --background: var(--concrete);
+  --foreground: var(--ink);
+  --color-page-background: var(--concrete);
+  --color-surface: var(--surface);
+  --color-surface-selected: var(--hivis-soft);
+  --color-surface-hover: var(--surface-sunk);
+  --color-border: var(--line);
+  --color-text-primary: var(--ink);
+  --color-text-muted: var(--muted);
+  --color-text-on-primary: #ffffff;
+  --color-brand-primary: var(--ink);
+  --color-action-disabled: #c9ccc7;
+  --color-status-success: var(--go);
+  --color-status-danger: var(--stop);
+  --color-status-info: var(--you);
+  --color-status-warning: var(--caution);
+  --color-status-neutral: var(--muted);
+  --color-voucher-applied-text: var(--go);
+  --color-status-success-bg: var(--go-soft);
+  --color-status-danger-bg: var(--stop-soft);
+  --color-status-info-bg: #e5edfd;
+  --color-status-warning-bg: var(--caution-soft);
+  --color-status-brand-bg: var(--hivis-soft);
+  --color-status-neutral-bg: var(--surface-sunk);
+  --color-track-background: #e3e6e1;
+  --color-track-line: #c6cbc4;
+  --color-status-warning-surface: var(--caution-soft);
+  --color-status-warning-text: var(--caution);
+  --color-status-warning-muted: var(--caution);
+  --color-status-success-surface: var(--go-soft);
+  --color-status-success-text: var(--go);
+  --color-status-success-muted: var(--go);
+  --color-status-success-soft-border: #b7dcc6;
+  --color-rewards-progress: var(--ink);
+  --color-rewards-progress-surface: var(--surface-sunk);
+  --color-rewards-progress-border: var(--line);
+  --color-rewards-earned-surface: var(--hivis-soft);
+  --color-rewards-earned-border: #ecd77a;
+  --color-reward-background: var(--hivis-soft);
+  --color-reward-border: #ecd77a;
+  --color-reward-text: #6b5300;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  /* One family (Archivo) at two widths: condensed for numbers and headings,
+     normal for reading. Older class names point at the same family. */
+  --font-inter: var(--font-archivo);
+  --font-big-shoulders: var(--font-archivo);
+  color: var(--ink);
+  background: var(--concrete);
+  font-family: var(--font-archivo), system-ui, sans-serif;
+  font-feature-settings: "tnum" 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 3px solid var(--you);
+  outline-offset: 2px;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  /* Condensed cut of Archivo, used for prices, codes and headings. */
+  .font-display {
+    font-family: var(--font-archivo), system-ui, sans-serif;
+    font-stretch: 68%;
+  }
+  .stretch-condensed {
+    font-stretch: 68%;
+  }
+  .stretch-semi {
+    font-stretch: 84%;
+  }
+  .stretch-wide {
+    font-stretch: 112%;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Sheets and drawers slide in; nothing else moves on its own. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheet-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-sheet-up {
+  animation: sheet-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.animate-sheet-right {
+  animation: sheet-right 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+.animate-bump {
+  animation: bump 320ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
   }
 }

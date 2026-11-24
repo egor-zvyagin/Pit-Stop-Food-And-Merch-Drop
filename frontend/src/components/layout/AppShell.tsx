@@ -1,44 +1,62 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import AppHeader from "@/components/layout/AppHeader";
-import SettingsPopUp from "@/components/SettingsPopUp";
-import NavBar from "@/components/NavBar";
+import Header from "@/components/shell/Header";
+import FlagStrip from "@/components/shell/FlagStrip";
+import BottomNav from "@/components/shell/BottomNav";
+import PodPicker from "@/components/shell/PodPicker";
+import AccountSheet from "@/components/shell/AccountSheet";
+import { ShellProvider, useShell } from "@/components/shell/ShellContext";
+import { LiveDataProvider } from "@/context/LiveDataContext";
+import CartBar from "@/components/cart/CartBar";
+import CartPanel from "@/components/cart/CartPanel";
+import { Sheet } from "@/components/ui/kit";
 
-type AppShellProps = {
-  children: ReactNode;
-};
+function CartSheet() {
+  const { cartOpen, setCartOpen } = useShell();
+  return (
+    <Sheet open={cartOpen} onClose={() => setCartOpen(false)} title="Your order" side="right">
+      <CartPanel onNavigate={() => setCartOpen(false)} />
+    </Sheet>
+  );
+}
 
-export default function AppShell({ children }: AppShellProps) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const pathname = usePathname();
-  const isVendor = pathname?.startsWith("/vendor");
+export default function AppShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname() || "/";
 
-  // Full-screen kiosk mode for staff vendor terminal (/vendor)
-  if (isVendor) {
+  // The staff terminal is a full-screen kiosk with its own chrome.
+  if (pathname.startsWith("/vendor")) {
     return (
-      <main className="min-h-screen w-full bg-[var(--color-page-background)] text-pitstop-text">
-        {children}
-      </main>
+      <LiveDataProvider>
+        <main className="min-h-screen w-full">{children}</main>
+      </LiveDataProvider>
     );
   }
 
-  // Consumer mobile layout (max 430px wide, centered)
   return (
-    <main className="min-h-screen w-full bg-[var(--color-page-background)]">
-      <div className="mx-auto w-full max-w-[430px] relative min-h-screen flex flex-col pb-24">
-        <AppHeader onSettingsClick={() => setSettingsOpen(true)} />
-
-        <div className="flex-1">{children}</div>
-
-        <SettingsPopUp
-          isOpen={settingsOpen}
-          onClose={() => setSettingsOpen(false)}
-        />
-
-        <NavBar />
-      </div>
-    </main>
+    <LiveDataProvider>
+      <ShellProvider>
+        <a
+          href="#content"
+          className="sr-only z-[90] rounded bg-ink px-3 py-2 text-white focus:not-sr-only focus:fixed focus:left-3 focus:top-3"
+        >
+          Skip to content
+        </a>
+        <Header />
+        <FlagStrip />
+        <main
+          id="content"
+          className="min-h-[calc(100dvh-var(--app-header-height))] pb-[calc(var(--bottom-nav-height)+var(--cart-bar-height)+32px)] lg:pb-16"
+        >
+          {children}
+        </main>
+        <CartBar />
+        <BottomNav />
+        <CartSheet />
+        <PodPicker />
+        <AccountSheet />
+      </ShellProvider>
+    </LiveDataProvider>
   );
 }

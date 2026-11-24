@@ -14,7 +14,7 @@ describe('Ed25519 Pass Signer & Isomorphic Verifier Suite', () => {
     expiresAt: nowEpoch + 3600,
     items: [
       { sku: 'apex-burger', name: 'APEX BURGER', quantity: 2, unitPriceCents: 1650 },
-      { sku: 'still-water', name: 'MOUNT FRANKLIN WATER', quantity: 1, unitPriceCents: 450 },
+      { sku: 'still-water', name: 'Spring water', quantity: 1, unitPriceCents: 450 },
     ],
     nonce: 'test-crypto-nonce-882194',
   };

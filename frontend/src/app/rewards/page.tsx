@@ -1,5 +1,5 @@
-import RewardsContent from "@/components/reward/RewardsContent";
+import RewardsScreen from "@/components/reward/RewardsScreen";
 
-export default function Reward() {
-    return <RewardsContent />;
+export default function Rewards() {
+  return <RewardsScreen />;
 }

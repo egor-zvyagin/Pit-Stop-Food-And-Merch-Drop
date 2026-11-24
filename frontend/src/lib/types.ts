@@ -1,6 +1,6 @@
 /**
  * Pit Stop v2: Canonical Shared Types
- * Master interface definitions for the F1 Grand Prix Fan Concession Logistics Platform
+ * Shared definitions for the trackside food and merch ordering platform.
  */
 
 export type ConcessionCategory = 'food' | 'merch';
@@ -22,6 +22,21 @@ export interface CatalogItem {
   isLimitedDrop?: boolean;
   description?: string;
   isAlcoholic?: boolean;
+  /** Dietary labels shown on the menu, e.g. "Vegetarian". */
+  dietary?: DietaryLabel[];
+  /** Allergens the item contains, using the names on Australian food labels. */
+  allergens?: string[];
+  /** Free kitchen instructions a fan can pick, e.g. "No pickles". */
+  options?: ItemOption[];
+  /** Typical prep time in minutes; 0 means it is already packed in a locker. */
+  prepMins?: number;
+}
+
+export type DietaryLabel = 'Vegetarian' | 'Vegan' | 'Gluten free' | 'Halal';
+
+export interface ItemOption {
+  id: string;
+  label: string;
 }
 
 export type StationId = 'M1' | 'M2' | 'M3' | 'M4';
@@ -64,6 +79,8 @@ export interface OrderItemRecord {
   unitPrice: number;
   sku?: string;
   image?: string;
+  /** Labels of the kitchen options chosen for this line, e.g. ["No pickles"]. */
+  options?: string[];
 }
 
 export type OrderStatus = 'RECEIVED' | 'PREPARING' | 'READY_FOR_PICKUP' | 'COMPLETED';

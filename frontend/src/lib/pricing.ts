@@ -129,10 +129,10 @@ export function calculateOrderPricing(
       voucherDiscount = round2(subtotal * 0.15);
       dynamicYieldDiscount = 0; // Replaces default 10% discount
       effectiveRateStr = '15% OFF (PITSTOP15 Promotional)';
-    } else if (normalizedCode === 'EATCLUB20') {
+    } else if (normalizedCode === 'CREW20') {
       voucherDiscount = round2(subtotal * 0.20);
       dynamicYieldDiscount = 0; // Replaces default 10% discount
-      effectiveRateStr = '20% OFF (EatClub Dynamic Yield)';
+      effectiveRateStr = '20% OFF (CREW20 Promotional)';
     }
     // 3b. Flat vouchers ($5 off, $10 off)
     else if (
