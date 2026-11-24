@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Icon } from "@/components/ui/Icon";
 import { LockerBayStatus } from '@/lib/types';
 
 interface OrderSummaryLike {
@@ -138,109 +137,49 @@ export default function LockerBayGrid({
 
   const occupiedCount = computedBays.filter((b) => b.status === 'OCCUPIED').length;
 
+  const tone = (orderStatus?: string) =>
+    orderStatus === 'READY_FOR_PICKUP'
+      ? 'border-[#3ccf7f]/60 bg-[#3ccf7f]/10'
+      : orderStatus === 'PREPARING'
+      ? 'border-[#ffb020]/50 bg-[#ffb020]/10'
+      : 'border-[#454c54] bg-[#1d2125]';
+
   return (
-    <div className="rounded-2xl border border-neutral-800 bg-[#121620] p-6 shadow-xl space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <div className="flex items-center gap-2">
-          <Icon icon="mdi:locker-multiple" width={22} height={22} className="text-red-500" />
-          <h2 className="font-display font-black text-base text-white">
-            Smart Locker Bays (Pod {stationId})
-          </h2>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-neutral-400">
-            {occupiedCount}/8 Occupied
-          </span>
-          <button
-            type="button"
-            onClick={fetchLockers}
-            className="text-neutral-400 hover:text-white p-1 transition-colors"
-            title="Refresh bays"
-          >
-            <Icon icon="mdi:refresh" width={16} height={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
+    <section aria-labelledby="lockers-heading" className="rounded-[14px] bg-[#191c20] p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="lockers-heading" className="text-[17px] font-semibold">
+          Lockers at pod {stationId}
+        </h2>
+        <span className="text-[13px] text-[#9aa3ab] tabular">
+          {loading && !remoteBays ? 'Loading…' : `${occupiedCount} of ${computedBays.length} in use`}
+        </span>
       </div>
-
-      {/* 8-Bay Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <ul className="mt-3 grid grid-cols-4 gap-2 lg:grid-cols-8">
         {computedBays.map((bay) => {
-          const isOccupied = bay.status === 'OCCUPIED';
-          const isSelected = isOccupied && bay.orderId === activeOrderId;
-          const status = bay.orderStatus || (isOccupied ? 'READY' : 'AVAILABLE');
-
-          let badgeColor = 'bg-neutral-800 text-neutral-400 border-neutral-700';
-          let borderColor = 'border-neutral-800 bg-neutral-900/60';
-
-          if (isOccupied) {
-            if (status === 'READY_FOR_PICKUP' || status === 'READY') {
-              badgeColor = 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-              borderColor = isSelected
-                ? 'border-blue-500 ring-2 ring-blue-500/40 bg-blue-950/20'
-                : 'border-blue-500/40 bg-blue-950/10 hover:border-blue-500/70';
-            } else if (status === 'PREPARING') {
-              badgeColor = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-              borderColor = isSelected
-                ? 'border-amber-500 ring-2 ring-amber-500/40 bg-amber-950/20'
-                : 'border-amber-500/40 bg-amber-950/10 hover:border-amber-500/70';
-            } else {
-              badgeColor = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-              borderColor = isSelected
-                ? 'border-emerald-500 ring-2 ring-emerald-500/40 bg-emerald-950/20'
-                : 'border-emerald-500/40 bg-emerald-950/10 hover:border-emerald-500/70';
-            }
-          }
-
+          const used = bay.status === 'OCCUPIED' && bay.orderId;
+          const selected = used && bay.orderId === activeOrderId;
           return (
-            <button
-              key={bay.bay}
-              type="button"
-              disabled={!isOccupied}
-              onClick={() => {
-                if (isOccupied && bay.orderId) {
-                  onSelectOrder(bay.orderId);
-                }
-              }}
-              className={`flex flex-col justify-between p-3.5 rounded-xl border transition-all text-left min-h-[115px] ${borderColor} ${
-                isOccupied
-                  ? 'cursor-pointer transform hover:-translate-y-0.5 active:translate-y-0'
-                  : 'cursor-default opacity-60'
-              }`}
-            >
-              {/* Top row: Bay # and status badge */}
-              <div className="flex items-center justify-between w-full">
-                <span className="font-display font-black text-base text-white">
-                  {bay.bay}
-                </span>
-                <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 border ${badgeColor}`}>
-                  {isOccupied ? (status === 'READY_FOR_PICKUP' ? 'Ready' : status === 'PREPARING' ? 'Prep' : 'Active') : 'Free'}
-                </span>
-              </div>
-
-              {/* Middle & Bottom: Order info or empty state */}
-              {isOccupied ? (
-                <div className="mt-2 space-y-1">
-                  <div className="font-mono text-xs font-bold text-red-400 truncate">
-                    {bay.orderId}
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-neutral-300">
-                    <span className="text-[11px] text-neutral-400">PIN:</span>
-                    <span className="font-mono font-black text-white bg-neutral-800/80 px-1.5 py-0.5 rounded border border-neutral-700">
-                      {bay.pinCode || '••••'}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-3 flex items-center justify-center text-xs text-neutral-500 py-1 font-medium">
-                  <Icon icon="mdi:lock-open-outline" width={16} height={16} className="mr-1 text-neutral-600" />
-                  Available
-                </div>
-              )}
-            </button>
+            <li key={bay.bay}>
+              <button
+                type="button"
+                disabled={!used}
+                onClick={() => bay.orderId && onSelectOrder(bay.orderId)}
+                aria-label={used ? `Locker ${bay.bay}, order PIN ${bay.pinCode ?? ''}` : `Locker ${bay.bay}, empty`}
+                className={`flex h-[72px] w-full flex-col justify-between rounded-[10px] border px-2 py-1.5 text-left transition-colors ${
+                  used ? tone(bay.orderStatus) : 'border-dashed border-[#353b42] text-[#6f7880]'
+                } ${selected ? 'ring-2 ring-[#ffd100]' : ''} ${used ? 'hover:border-white/60' : 'cursor-default'}`}
+              >
+                <span className="font-display text-[15px] font-bold">{bay.bay}</span>
+                {used ? (
+                  <span className="font-display text-[20px] font-black leading-none tabular text-[#ffd100]">{bay.pinCode ?? ''}</span>
+                ) : (
+                  <span className="text-[12px]">Empty</span>
+                )}
+              </button>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ul>
+    </section>
   );
 }

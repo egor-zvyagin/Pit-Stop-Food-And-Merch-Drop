@@ -24,7 +24,9 @@ At a race weekend, food queues peak during lap breaks and safety cars, and mobil
 
 - **Fans** browse the menu, pick kitchen options ("No pickles"), choose the pickup pod with the shortest walk plus queue, and pay. The Orders screen shows a pit board with the locker number, a pickup PIN and a QR code, plus an alert when the order is ready. A shareable link lets the rest of the row follow progress without seeing the PIN.
 - **Race control** drives prices and queue estimates: a green flag takes 10% off to pull orders away from the rush, a safety car or red flag pauses the discount, and the chequered flag opens post-race deals.
-- **Staff** use a kiosk terminal: a locker grid per pod, order details with kitchen notes, race-flag controls, and a pass scanner that checks signed QR codes with no network. Updates made offline queue up and sync when the connection returns.
+- **Staff** use a kiosk terminal: an order board per pod (new, preparing, ready) with kitchen notes and order age, a locker grid, race-flag controls, live stock with restock and merch-drop controls, and a pass checker that verifies signed QR codes with no network. Updates made offline are saved on the terminal and sent when the connection returns.
+
+<img src="docs/screenshots/staff-terminal.jpg" alt="Staff terminal with the order board, pass checker and selected order" width="760">
 
 ## Live demo
 

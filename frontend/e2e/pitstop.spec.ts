@@ -109,48 +109,38 @@ test.describe('Staff terminal', () => {
     await pinInput.fill(E2E_VENDOR_PIN);
     await page.getByRole('button', { name: /Unlock terminal/i }).click();
 
-    // 3. Asserts 8-bay Locker Grid and Telemetry Bar render
-    await expect(page.locator('text=/Smart Locker Bays/i')).toBeVisible();
+    // 3. The order board, lockers and race control render.
+    await expect(page.getByRole('region', { name: 'Order board' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Lockers at pod M2' })).toBeVisible();
     await expect(page.locator('text=#01').first()).toBeVisible();
     await expect(page.locator('text=#08').first()).toBeVisible();
-    await expect(page.locator('text=/Airplane Mode/i').first()).toBeVisible();
 
-    // 4. Toggles Race Control flag
-    const safetyCarBtn = page.getByRole('button', { name: /Safety Car/i });
-    if (await safetyCarBtn.isVisible()) {
-      await safetyCarBtn.click();
-      // Verify flag active indicator updates
-      await expect(page.locator('text=/Safety Car/i').first()).toBeVisible();
-    }
+    // 4. Race control: set Safety Car, then back to Green Flag.
+    await page.getByRole('button', { name: /Safety Car/ }).click();
+    await expect(page.getByRole('button', { name: /Safety Car/ })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: /Green Flag/ }).click();
+    await expect(page.getByRole('button', { name: /Green Flag/ })).toHaveAttribute('aria-pressed', 'true');
 
-    // Restore to Green Flag
-    const greenFlagBtn = page.getByRole('button', { name: /Green Flag/i });
-    if (await greenFlagBtn.isVisible()) {
-      await greenFlagBtn.click();
-    }
+    // 5. A fresh order placed by a fan appears, and its PIN finds it.
+    const created = await page.request.post('/api/orders', {
+      data: { items: [{ itemId: 'still-water', quantity: 1 }], stationId: 'M2', ticketCode: 'GP-9014-P' },
+    });
+    expect(created.status()).toBe(201);
+    const { order } = await created.json();
+    await page.getByLabel('Pickup PIN or pass code').fill(order.pinCode);
+    await page.getByRole('button', { name: 'Check', exact: true }).click();
+    await expect(page.getByText('Order found')).toBeVisible();
+    await expect(page.getByText(`Ref ${order.orderId}`)).toBeVisible();
 
-    // 5. Enables Airplane Mode Simulator, marks an order complete, asserts "Pending Cloud Sync" count increases
+    // 6. Airplane Mode: the update is saved on the terminal, then sent on reconnect.
     const airplaneSwitch = page.getByRole('switch', { name: /Airplane Mode/i });
-    await expect(airplaneSwitch).toBeVisible();
     await airplaneSwitch.click();
+    await expect(airplaneSwitch).toHaveAttribute('aria-checked', 'true');
+    await page.getByRole('complementary').getByRole('button', { name: 'Start preparing' }).click();
+    await expect(page.getByText(/Pending Cloud Sync \([1-9]\d*\)/)).toBeVisible();
 
-    // Check for OUTBOX / Offline indicator
-    await expect(page.locator('text=/Airplane Mode/i').first()).toBeVisible();
-
-    // If there is an active order or recent order, advance it to test offline sync
-    const completeActionBtn = page.getByRole('button', { name: /Complete Collection|Mark Ready/i }).first();
-    if (await completeActionBtn.isVisible()) {
-      await completeActionBtn.click();
-      // Assert Pending Cloud Sync count increases
-      await expect(page.locator('text=/Pending Cloud Sync \([1-9]\d*\)/i')).toBeVisible();
-    }
-
-    // 6. Toggles Airplane Mode OFF, asserts auto-sync fires and queue clears
     await airplaneSwitch.click();
-
-    // When airplane mode is toggled off, sync queue automatically flushes
-    const syncBadge = page.locator('text=/Pending Cloud Sync/i');
-    await expect(syncBadge).toBeVisible();
+    await expect(page.getByText('Pending Cloud Sync (0)')).toBeVisible({ timeout: 10000 });
   });
 });
 
