@@ -81,7 +81,9 @@ export function useTracksideLocation(
   const watchIdRef = useRef<number | null>(null);
   const walkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const clearLiveWatch = useCallback(() => {
     if (
@@ -329,6 +331,7 @@ export function useTracksideLocation(
   // Auto-start watch if requested
   useEffect(() => {
     if (autoStart) {
+      // Starts a GPS watch (an external system); its updates set state later.
       requestLiveGps();
     }
 

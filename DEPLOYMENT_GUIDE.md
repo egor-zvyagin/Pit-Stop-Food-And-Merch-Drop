@@ -1,7 +1,7 @@
 # AWS Deployment Guide: Pit Stop Platform (v3.0 Production Platform)
 
 **Target Environment:** AWS Asia Pacific (Sydney) - `ap-southeast-2`  
-**Stack Architecture:** Next.js 14 App Router (AWS Amplify Hosting) + Amazon DynamoDB (Single-Table Design via Terraform)  
+**Stack Architecture:** Next.js 15 App Router (AWS Amplify Hosting) + Amazon DynamoDB (Single-Table Design via Terraform)  
 **DevOps & Security:** S3 Remote Backend with Native Lockfiles, GitHub Actions Keyless OIDC Federation, CloudWatch Free-Tier Dashboard  
 **Cost Profile:** 100% Scale-to-Zero ($0.00 Idle Infrastructure Cost)  
 **Security Posture:** Zero Hardcoded Secrets, Least-Privilege IAM Policies, Zero Team Resource Coupling, Strict Zero-Secret Public Tracking  
@@ -27,7 +27,7 @@ flowchart TD
     subgraph AWSCloud["AWS Region: ap-southeast-2 (Sydney)"]
         AmplifyEdge["AWS Amplify Hosting (CloudFront CDN)"]
         
-        subgraph ServerlessSSR["Next.js 14 Serverless SSR Engine"]
+        subgraph ServerlessSSR["Next.js 15 Serverless SSR Engine"]
             APIInventory["GET /api/inventory & POST /api/inventory/restock"]
             APICircuit["GET & PATCH /api/circuit/status (Live Flags: Green, Safety Car, Red, Post-Race)"]
             APIStations["GET /api/stations/capacity & GET /api/stations/lockers (#01..#08)"]
@@ -216,7 +216,7 @@ npm run seed
 
 ## 5. Phase 2: Deploy Frontend & API via AWS Amplify Hosting
 
-AWS Amplify Hosting manages the continuous integration and deployment of the Next.js 14 application using `amplify.yml`.
+AWS Amplify Hosting manages the continuous integration and deployment of the Next.js 15 application using `amplify.yml`.
 
 ### Step 2.1: Amplify Build Specification (`amplify.yml`)
 The root `amplify.yml` directs Amplify to build from the `frontend` sub-directory:

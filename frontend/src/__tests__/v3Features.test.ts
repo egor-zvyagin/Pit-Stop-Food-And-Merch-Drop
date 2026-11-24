@@ -263,7 +263,7 @@ describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline 
 
       // Call public tracker endpoint
       const req = new Request(`http://localhost:3000/api/orders/${testOrderId}/public`);
-      const res = await getOrderPublicRoute(req, { params: { id: testOrderId } });
+      const res = await getOrderPublicRoute(req, { params: Promise.resolve({ id: testOrderId }) });
       expect(res.status).toBe(200);
 
       const json = await res.json();

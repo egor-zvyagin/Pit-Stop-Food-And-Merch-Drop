@@ -14,9 +14,9 @@ const rateLimiter = createRateLimiter('vendor');
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = params;
+  const { id } = await params;
 
   if (!id) {
     return NextResponse.json(
@@ -88,10 +88,11 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const requestId = generateRequestId();
-  const logger = createRequestLogger({ requestId, route: `/api/orders/${params?.id}/status`, method: 'PATCH' });
+  const logger = createRequestLogger({ requestId, route: `/api/orders/${id}/status`, method: 'PATCH' });
 
   // Rate Limiting
   const limit = rateLimiter.consume();
@@ -101,7 +102,6 @@ export async function PATCH(
   }
 
   try {
-    const { id } = params;
     if (!id) {
       logger.log({ status: 400, error: 'Order ID is required' });
       return NextResponse.json(

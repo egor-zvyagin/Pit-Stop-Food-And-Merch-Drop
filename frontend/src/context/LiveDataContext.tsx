@@ -103,7 +103,6 @@ export function LiveDataProvider({ children }: { children: ReactNode }) {
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
-    if (!navigator.onLine) setOnline(false);
 
     return () => {
       cancelled = true;

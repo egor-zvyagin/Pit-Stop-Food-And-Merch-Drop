@@ -10,7 +10,7 @@
 
 <img src="docs/screenshots/desktop-menu.jpg" alt="Desktop menu with the order sidebar" width="760">
 
-Next.js 14 · TypeScript · Tailwind · DynamoDB · Terraform · Playwright
+Next.js 15 · React 19 · TypeScript · Tailwind · DynamoDB · Terraform · Playwright
 
 ## About this repository
 
@@ -58,7 +58,7 @@ flowchart TD
     subgraph AWSCloud["AWS Asia Pacific - Sydney (ap-southeast-2)"]
         CloudFront["AWS Amplify Hosting / CloudFront CDN"]
         
-        subgraph ServerlessCompute["Next.js 14 Serverless SSR (Amplify Hosting)"]
+        subgraph ServerlessCompute["Next.js 15 Serverless SSR (Amplify Hosting)"]
             CatalogAPI["/api/inventory & /api/inventory/restock"]
             RaceControlAPI["/api/circuit/status (Live Flags: Green, Safety Car, Red, Post-Race)"]
             StationAPI["/api/stations/capacity & /api/stations/lockers (#01..#08)"]
@@ -156,7 +156,6 @@ Shared pieces live in `frontend/src/components/ui/kit.tsx` and are described in 
 - The server's rewards history and "points already awarded" check are also per instance.
 - A fan is identified by ticket code alone, and the collection PIN is four digits.
 - Tests run on the in-memory store. The DynamoDB code path is tested with a stubbed client, not against a real table.
-- `npm audit` reports 7 advisories that need major upgrades (Next.js 14 to 16, MapLibre GL 5 to 6).
 - The GitHub Actions deployment role can manage IAM more broadly than this project needs.
 
 ---
@@ -250,7 +249,7 @@ npm run test:e2e
 ## Local Development Setup
 
 ### 1. Prerequisites
-- **Node.js:** `>= 20.0.0` (v20.x or v22.x LTS)
+- **Node.js:** `>= 20.9` (v20.x or v22.x LTS)
 - **npm:** `>= 10.0.0`
 
 ### 2. Clone & Install

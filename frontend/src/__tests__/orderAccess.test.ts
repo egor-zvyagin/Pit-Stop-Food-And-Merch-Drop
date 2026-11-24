@@ -16,7 +16,7 @@ describe('order data access', () => {
 
   const getStatus = (id: string, headers: Record<string, string> = {}) =>
     getOrderStatusRoute(new Request(`http://localhost:3000/api/orders/${id}/status`, { headers }), {
-      params: { id },
+      params: Promise.resolve({ id }),
     });
 
   beforeAll(async () => {

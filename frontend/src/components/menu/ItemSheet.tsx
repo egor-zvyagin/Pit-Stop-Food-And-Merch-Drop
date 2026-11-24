@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { Check } from "lucide-react";
 import type { CatalogItem } from "@/lib/types";
@@ -18,11 +18,6 @@ export default function ItemSheet({ item, onClose }: { item: CatalogItem | null;
   const { addToCart } = useOrder();
   const [qty, setQty] = useState(1);
   const [chosen, setChosen] = useState<string[]>([]);
-
-  useEffect(() => {
-    setQty(1);
-    setChosen([]);
-  }, [item?.id]);
 
   if (!item) return <Sheet open={false} onClose={onClose} title="">{null}</Sheet>;
 

@@ -91,6 +91,8 @@ export default function VendorTerminalPage() {
     try {
       const unlocked = sessionStorage.getItem('pitstop_vendor_unlocked');
       const savedPin = sessionStorage.getItem('pitstop_vendor_pin') || '';
+      // Reads browser storage after hydration: reading it during render would
+      // make the server and client HTML differ.
       setVendorPin(savedPin);
       if (unlocked === 'true' && savedPin) setIsUnlocked(true);
     } catch {
@@ -187,6 +189,7 @@ export default function VendorTerminalPage() {
 
   useEffect(() => {
     if (!isUnlocked || airplaneMode) return;
+    // fetchOrders only sets state after its network request returns.
     void fetchOrders();
     const id = setInterval(fetchOrders, 4000);
     return () => clearInterval(id);

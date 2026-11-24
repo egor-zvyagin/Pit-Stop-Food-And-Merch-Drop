@@ -24,22 +24,28 @@ export default function OrderHistory({ ticketCode }: { ticketCode: string }) {
   const [orders, setOrders] = useState<OrderRecord[] | null>(null);
   const [failed, setFailed] = useState(false);
 
-  const load = useCallback(async () => {
-    setFailed(false);
-    setOrders(null);
+  const fetchHistory = useCallback(async () => {
     try {
       const res = await fetch(`/api/orders/history?ticketCode=${encodeURIComponent(ticketCode)}`, { cache: "no-store" });
       if (!res.ok) throw new Error(String(res.status));
       const json = await res.json();
       setOrders((json.orders || json.data || []) as OrderRecord[]);
+      setFailed(false);
     } catch {
       setFailed(true);
     }
   }, [ticketCode]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    // State is only set after the request returns.
+    void fetchHistory();
+  }, [fetchHistory]);
+
+  const retry = () => {
+    setFailed(false);
+    setOrders(null);
+    void fetchHistory();
+  };
 
   function reorder(order: OrderRecord) {
     for (const item of order.items) {
@@ -56,7 +62,7 @@ export default function OrderHistory({ ticketCode }: { ticketCode: string }) {
 
   if (failed) {
     return (
-      <Notice tone="caution" title="Past orders could not be loaded" action={<Button tone="dark" onClick={load}>Try again</Button>}>
+      <Notice tone="caution" title="Past orders could not be loaded" action={<Button tone="dark" onClick={retry}>Try again</Button>}>
         You may be offline. Your current order and its pickup code are saved on this phone.
       </Notice>
     );
