@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:live": "npx tsx src/scripts/smokeLive.ts",
-    "seed": "npx tsx src/scripts/seed.ts"
+    "seed": "npx tsx src/scripts/seed.ts",
+    "keygen": "npx tsx src/scripts/generateKeys.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.750.0",

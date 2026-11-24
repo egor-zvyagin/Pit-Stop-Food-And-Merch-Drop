@@ -16,7 +16,7 @@ The Pit Stop Food & Merch Drop platform is architectured for high-throughput, lo
 flowchart TD
     subgraph ClientTerminal["Client Devices & Concession Terminals"]
         FanClient["Fan Mobile Web / PWA\n(Safari / Chrome - Group Orders, Live Tracker /track/[orderId], History)"]
-        VendorKiosk["Vendor Kiosk Staff Terminal\n(/vendor - Staff PIN 2026, 8-Bay Lockers, Race Control)"]
+        VendorKiosk["Vendor Kiosk Staff Terminal\n(/vendor - Staff PIN, 8-Bay Lockers, Race Control)"]
         OfflineSyncOutbox["Offline Fulfillment Outbox (syncQueue.ts)\n(Airplane Mode Simulator + Auto-Sync)"]
         OfflineVerifier["Isomorphic Ed25519 Verifier (@noble/curves)"]
         
@@ -35,7 +35,7 @@ flowchart TD
             APIHistory["GET /api/orders/history (GSI1 Fan Queries)"]
             APITrack["GET /api/orders/[id]/public (Zero-Secret Read-Only Tracking)"]
             APICheckout["POST /api/payment/checkout (Idempotent Payment)"]
-            APIStatus["PATCH /api/orders/[id]/status (PIN 2026 Guard)"]
+            APIStatus["PATCH /api/orders/[id]/status (Staff PIN Guard)"]
             APIRewards["GET & POST /api/rewards"]
             APICrypto["GET /api/crypto/public-key (SPKI Ed25519)"]
             PassSigner["Server Ed25519 Pass Signer (crypto.sign)"]
@@ -111,7 +111,7 @@ flowchart TD
 | **Keyless CI/CD Authentication** | **VERIFIED CLEAN** | GitHub Actions deploys via OpenID Connect (OIDC) role assumption against `token.actions.githubusercontent.com`. Zero permanent AWS keys stored in GitHub Secrets. |
 | **Team Resource Isolation** | **VERIFIED CLEAN** | All references to legacy team resources (e.g. personal team member AWS accounts, upstream team remotes) have been completely removed. |
 | **Zero-Secret Public Tracking** | **VERIFIED CLEAN** | `GET /api/orders/[id]/public` strictly strips `qrPayload`, `signatureBase64`, and `pinCode`. Validated via automated Vitest and smoke tests. |
-| **Vendor Kiosk Access Control** | **VERIFIED CLEAN** | Order status mutations (`PATCH /api/orders/[id]/status`), vendor orders list (`GET /api/orders`), and locker inspection (`GET /api/stations/lockers`) require `X-Vendor-Pin` matching `VENDOR_ACCESS_PIN` (`2026`). Unauthenticated requests are rejected with 401 Unauthorized. |
+| **Vendor Kiosk Access Control** | **VERIFIED CLEAN** | Order status mutations (`PATCH /api/orders/[id]/status`), vendor orders list (`GET /api/orders`), and locker inspection (`GET /api/stations/lockers`) require `X-Vendor-Pin` matching `VENDOR_ACCESS_PIN`. Unauthenticated requests are rejected with 401 Unauthorized. |
 | **Payment Idempotency** | **VERIFIED CLEAN** | `POST /api/payment/checkout` enforces idempotency via `Idempotency-Key` headers to prevent double-charging on network retries. |
 | **IAM Principle of Least Privilege** | **VERIFIED CLEAN** | Dedicated IAM policy `pitstop_data-access-policy` restricts database access strictly to the table ARN and index ARNs with `ConditionCheckItem` for transactions, with zero administrative privileges. |
 
@@ -250,7 +250,8 @@ applications:
 4. Choose branch `main`.
 5. Under **Environment variables**, configure:
    * `NEXT_PUBLIC_APP_URL`: `https://main.<app-id>.amplifyapp.com`
-   * `VENDOR_ACCESS_PIN`: `2026`
+   * `VENDOR_ACCESS_PIN`: a staff PIN you choose (required; the build stops without it)
+   * `ED25519_PRIVATE_KEY_BASE64`: pass signing key from `npm run keygen` (required; the build stops without it)
    * `ED25519_KEY_ID`: `AGPC-2027-KEY-01`
    * `DYNAMODB_TABLE_NAME`: `pitstop_data`
    * `AWS_REGION`: `ap-southeast-2`
@@ -306,7 +307,7 @@ This verifies the complete end-to-end fan-to-vendor lifecycle against live cloud
 5. Zero-Secret public tracker audit from `/api/orders/[id]/public` (asserts `qrPayload`, `pinCode`, `signatureBase64` are undefined).
 6. Fan order history query from `/api/orders/history?ticketCode=GP-3820-X`.
 7. Idempotent payment checkout from `/api/payment/checkout`.
-8. Vendor terminal order completion with Staff PIN 2026 from `/api/orders/[id]/status`.
+8. Vendor terminal order completion with the staff PIN from `/api/orders/[id]/status`.
 9. Fan loyalty points and badges verification from `/api/rewards`.
 10. Clean teardown & nonce registry flush.
 
@@ -327,7 +328,7 @@ curl -s "https://<YOUR_DOMAIN>/api/crypto/public-key" | jq .
 #### 3. Smart Locker Bay Inspection (Staff PIN Protected)
 ```bash
 curl -s "https://<YOUR_DOMAIN>/api/stations/lockers?stationId=M2" \
-  -H "X-Vendor-Pin: 2026" | jq .
+  -H "X-Vendor-Pin: $VENDOR_ACCESS_PIN" | jq .
 # Expected: { "success": true, "stationId": "M2", "totalBays": 8, "bays": [...] }
 ```
 
@@ -351,10 +352,10 @@ curl -s -X PATCH "https://<YOUR_DOMAIN>/api/orders/<ORDER_ID>/status" \
   -H "Content-Type: application/json" \
   -d '{"status": "READY_FOR_PICKUP"}' | jq .
 
-# With Staff PIN 2026: expected 200
+# With the staff PIN: expected 200
 curl -s -X PATCH "https://<YOUR_DOMAIN>/api/orders/<ORDER_ID>/status" \
   -H "Content-Type: application/json" \
-  -H "X-Vendor-Pin: 2026" \
+  -H "X-Vendor-Pin: $VENDOR_ACCESS_PIN" \
   -d '{"status": "READY_FOR_PICKUP"}' | jq .
 ```
 

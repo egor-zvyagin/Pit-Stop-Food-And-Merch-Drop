@@ -31,9 +31,6 @@ export interface VerificationResult {
   payload?: OrderPassPayload;
 }
 
-// Canonical default Ed25519 public key (SPKI Base64) matching AGPC-2027-KEY-01
-export const DEFAULT_PUBLIC_KEY_SPKI_BASE64 = 'MCowBQYDK2VwAyEAXTZ23IPCQi9z2B0U4g6wNDVqanRuS3goJ9ULNdegGMY=';
-
 // Active in-memory public key for verification
 let activePublicKeyBytes: Uint8Array | null = null;
 
@@ -110,7 +107,26 @@ export function setVerificationPublicKey(publicKey: string | Uint8Array): void {
 }
 
 /**
- * Resolves the active public key from configuration, environment, or default fallback.
+ * True once a verification key is available, either set explicitly or present
+ * in the environment.
+ */
+export function hasVerificationPublicKey(): boolean {
+  try {
+    getActivePublicKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves the active public key: the one set with setVerificationPublicKey(),
+ * otherwise the one configured in the environment.
+ *
+ * There is deliberately no built-in default. A verifier that falls back to a
+ * key published in the source code would accept passes anyone can forge.
+ * Throws when no key is available; verifyPassOffline() reports that as an
+ * invalid pass.
  */
 export function getActivePublicKey(): Uint8Array {
   if (activePublicKeyBytes) {
@@ -122,16 +138,11 @@ export function getActivePublicKey(): Uint8Array {
     (typeof process !== 'undefined' && process.env?.ED25519_PUBLIC_KEY_BASE64);
 
   if (envKey) {
-    try {
-      activePublicKeyBytes = normalizePublicKey(envKey);
-      return activePublicKeyBytes;
-    } catch {
-      // Fall through to default
-    }
+    activePublicKeyBytes = normalizePublicKey(envKey);
+    return activePublicKeyBytes;
   }
 
-  activePublicKeyBytes = normalizePublicKey(DEFAULT_PUBLIC_KEY_SPKI_BASE64);
-  return activePublicKeyBytes;
+  throw new Error('Verification key not loaded. Connect this terminal to the network once to fetch it.');
 }
 
 /**

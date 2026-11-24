@@ -4,7 +4,7 @@
 **Branch:** `feat/v2-production-hardening`  
 **Target AWS Account:** Profile `personal` (`608531435714`), Region `ap-southeast-2`  
 **Live Production URL:** `https://main.d3m92lj3xoqgf9.amplifyapp.com`  
-**Staff Kiosk URL:** `https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor` (PIN: `2026`)  
+**Staff Kiosk URL:** `https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor` (PIN: not published)  
 **Cost Profile:** 100% Serverless / Scale-to-Zero ($0.00 idle cost)  
 
 ---
@@ -36,7 +36,7 @@
 - [x] Split `passEngine.ts` into `passSigner.ts` (Node server only) and `passVerifier.ts` (isomorphic browser-safe)
 - [x] Expose `GET /api/crypto/public-key` with immutable/long cache headers
 - [x] Implement `OfflineNonceRegistry` (`localStorage` cache) & DynamoDB replay detection
-- [x] Implement vendor kiosk PIN auth guard (`src/lib/auth/vendorAuth.ts`) with `X-Vendor-Pin` (`2026`)
+- [x] Implement vendor kiosk PIN auth guard (`src/lib/auth/vendorAuth.ts`) with `X-Vendor-Pin`
 - [x] Restrict CORS in `frontend/next.config.mjs` to `NEXT_PUBLIC_APP_URL` and `localhost:3000`
 
 ### Track 2: `@backend-data` (Catalog, Authoritative Pricing, Payment & Persistent Rewards)
@@ -56,7 +56,7 @@
 - [x] Connect checkout flow to `calculateOrderPricing()` and real payment/order endpoints with inline error handling
 - [x] Make `AppHeader.tsx` ticket badge interactive with Ticket Verification modal & demo ticket quick-fill
 - [x] Mount automatic order status polling on `/collect` and `/pass` with visibility change handling
-- [x] Upgrade `/vendor` kiosk with Staff PIN gate (`2026`), camera QR scanning, offline verifier, and status actions
+- [x] Upgrade `/vendor` kiosk with Staff PIN gate, camera QR scanning, offline verifier, and status actions
 
 ### Track 4: `@infra-devops` (Terraform S3 Locking, DynamoDB GSI2/TTL & PWA)
 - [x] Add GSI2 and TTL configuration to `infra/terraform/dynamodb.tf`

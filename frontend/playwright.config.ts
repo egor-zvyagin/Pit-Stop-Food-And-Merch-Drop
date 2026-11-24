@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_VENDOR_PIN } from './e2e/testEnv';
 
 /**
  * Pit Stop v3.0 Playwright E2E Configuration
@@ -37,5 +38,7 @@ export default defineConfig({
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
+    // The app has no default PIN, so the test server is given one explicitly.
+    env: { VENDOR_ACCESS_PIN: E2E_VENDOR_PIN },
   },
 });

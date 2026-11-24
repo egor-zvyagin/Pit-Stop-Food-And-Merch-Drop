@@ -7,6 +7,7 @@ import {
   listenToOnlineStatus,
   clearSyncQueue,
 } from '../syncQueue';
+import { TEST_VENDOR_PIN } from '@/__tests__/testEnv';
 
 describe('Offline Fulfillment Sync Queue', () => {
   beforeEach(() => {
@@ -53,7 +54,7 @@ describe('Offline Fulfillment Sync Queue', () => {
       json: async () => ({ success: true }),
     } as unknown as Response);
 
-    const result = await flushSyncQueue('2026');
+    const result = await flushSyncQueue(TEST_VENDOR_PIN);
     expect(result.resolved).toBe(1);
     expect(result.failed).toBe(0);
     expect(getPendingSyncActions()).toHaveLength(0);
@@ -64,7 +65,7 @@ describe('Offline Fulfillment Sync Queue', () => {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-Vendor-Pin': '2026',
+          'X-Vendor-Pin': TEST_VENDOR_PIN,
         },
       })
     );
@@ -79,7 +80,7 @@ describe('Offline Fulfillment Sync Queue', () => {
       json: async () => ({ success: false, error: 'Order already completed' }),
     } as unknown as Response);
 
-    const result = await flushSyncQueue('2026');
+    const result = await flushSyncQueue(TEST_VENDOR_PIN);
     expect(result.resolved).toBe(1);
     expect(result.failed).toBe(0);
     expect(getPendingSyncActions()).toHaveLength(0);
@@ -90,7 +91,7 @@ describe('Offline Fulfillment Sync Queue', () => {
 
     global.fetch = vi.fn().mockRejectedValue(new Error('Network Offline'));
 
-    const result = await flushSyncQueue('2026');
+    const result = await flushSyncQueue(TEST_VENDOR_PIN);
     expect(result.resolved).toBe(0);
     expect(result.failed).toBe(1);
 

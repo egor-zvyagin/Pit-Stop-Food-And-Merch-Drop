@@ -2,8 +2,8 @@
  * Pit Stop Live / Local Smoke Verification Script (v3.0 Production Platform)
  * Executable via:
  *   npx tsx src/scripts/smokeLive.ts
- * Or against live deployment:
- *   APP_URL=https://main.d3m92lj3xoqgf9.amplifyapp.com npx tsx src/scripts/smokeLive.ts
+ * Or against a running server (local or deployed), with that server's staff PIN:
+ *   APP_URL=https://<your-app-url> VENDOR_ACCESS_PIN=<staff pin> npx tsx src/scripts/smokeLive.ts
  *
  * Full End-to-End Fan-to-Vendor Lifecycle:
  * 1. Live Race Control Circuit State (/api/circuit/status)
@@ -13,11 +13,12 @@
  * 5. Verify Zero-Secret public tracking (/api/orders/[id]/public)
  * 6. Query fan order history (/api/orders/history?ticketCode=...)
  * 7. Execute idempotent payment checkout (/api/payment/checkout)
- * 8. Vendor kiosk staff marks order COMPLETED with Staff PIN 2026 (/api/orders/[id]/status)
+ * 8. Vendor kiosk staff marks order COMPLETED with the staff PIN (/api/orders/[id]/status)
  * 9. Verify fan rewards balance & badges awarded (/api/rewards)
  * 10. Clean teardown & registry flush
  */
 
+import { generateKeyPairSync, randomInt } from 'crypto';
 import { setVerificationPublicKey, verifyQrPayload } from '../lib/crypto/passVerifier';
 import { OfflineNonceRegistry } from '../lib/crypto/nonceRegistry';
 
@@ -105,11 +106,38 @@ interface SmokeClient {
   restockAll: () => Promise<ApiResponse<{ success: boolean }>>;
 }
 
+// Staff PIN sent to vendor endpoints. The app has no default PIN, so an HTTP
+// target needs the real one from the environment.
+let vendorPin = process.env.VENDOR_ACCESS_PIN || '';
+
+function requireVendorPin(target: string): void {
+  if (!vendorPin) {
+    console.error(`✗ VENDOR_ACCESS_PIN is not set. Export the staff PIN of ${target} and run again.`);
+    process.exit(1);
+  }
+}
+
+// In-process runs talk to no server, so they configure a throwaway PIN and
+// signing key for this one process when none are provided.
+function configureInProcessSecrets(): void {
+  if (!vendorPin) {
+    vendorPin = String(randomInt(1000, 10000));
+    process.env.VENDOR_ACCESS_PIN = vendorPin;
+  }
+  if (!process.env.ED25519_PRIVATE_KEY_BASE64) {
+    const { privateKey } = generateKeyPairSync('ed25519');
+    process.env.ED25519_PRIVATE_KEY_BASE64 = privateKey
+      .export({ type: 'pkcs8', format: 'der' })
+      .toString('base64');
+  }
+}
+
 async function initClient(): Promise<SmokeClient> {
   const targetUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL;
 
   if (targetUrl) {
     console.log(`📡 Target mode: HTTP (${targetUrl})`);
+    requireVendorPin(targetUrl);
     return createHttpClient(targetUrl.replace(/\/$/, ''));
   }
 
@@ -123,6 +151,7 @@ async function initClient(): Promise<SmokeClient> {
     clearTimeout(timeout);
     if (probe.ok) {
       console.log('📡 Target mode: Local HTTP Server (http://localhost:3000)');
+      requireVendorPin('http://localhost:3000');
       return createHttpClient('http://localhost:3000');
     }
   } catch {
@@ -130,6 +159,7 @@ async function initClient(): Promise<SmokeClient> {
   }
 
   console.log('⚡ Target mode: In-Process Next.js Serverless Route Dispatch (Standalone)');
+  configureInProcessSecrets();
   return createInProcessClient();
 }
 
@@ -172,7 +202,7 @@ function createHttpClient(baseUrl: string): SmokeClient {
       });
       return { status: res.status, data: await res.json() };
     },
-    async updateOrderStatus(orderId, status, pin = '2026') {
+    async updateOrderStatus(orderId, status, pin = vendorPin) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (pin) headers['X-Vendor-Pin'] = pin;
       const res = await fetch(`${baseUrl}/api/orders/${orderId}/status`, {
@@ -191,7 +221,7 @@ function createHttpClient(baseUrl: string): SmokeClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Vendor-Pin': '2026',
+          'X-Vendor-Pin': vendorPin,
         },
         body: JSON.stringify({ mode: 'restock_all' }),
       });
@@ -243,7 +273,7 @@ function createInProcessClient(): SmokeClient {
       const res = await checkoutRoute(req);
       return { status: res.status, data: await res.json() };
     },
-    async updateOrderStatus(orderId, status, pin = '2026') {
+    async updateOrderStatus(orderId, status, pin = vendorPin) {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (pin) headers['X-Vendor-Pin'] = pin;
       const req = new Request(`http://localhost:3000/api/orders/${orderId}/status`, {
@@ -264,7 +294,7 @@ function createInProcessClient(): SmokeClient {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Vendor-Pin': '2026',
+          'X-Vendor-Pin': vendorPin,
         },
         body: JSON.stringify({ mode: 'restock_all' }),
       });
@@ -441,7 +471,7 @@ async function runSmoke() {
   console.log('  ✓ Payment idempotency verified: identical transaction returned for duplicate submission');
 
   // --------------------------------------------------------------------------
-  // STEP 8: Vendor Kiosk Order Status Update (Staff PIN 2026)
+  // STEP 8: Vendor Kiosk Order Status Update (staff PIN)
   // --------------------------------------------------------------------------
   console.log('\n▶ STEP 8: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...');
 
@@ -452,12 +482,12 @@ async function runSmoke() {
   }
   console.log('  ✓ Security check: unauthorized PIN rejected with 401');
 
-  // Update to COMPLETED with valid Staff PIN 2026
-  const completeRes = await client.updateOrderStatus(order.orderId, 'COMPLETED', '2026');
+  // Update to COMPLETED with the valid staff PIN
+  const completeRes = await client.updateOrderStatus(order.orderId, 'COMPLETED', vendorPin);
   if (completeRes.status !== 200 || !completeRes.data.success) {
     throw new Error(`Vendor order completion failed: HTTP ${completeRes.status} ${JSON.stringify(completeRes.data)}`);
   }
-  console.log('  ✓ Vendor marked order COMPLETED (Staff PIN: 2026 verified)');
+  console.log('  ✓ Vendor marked order COMPLETED (staff PIN verified)');
 
   // --------------------------------------------------------------------------
   // STEP 9: Rewards Balance Verification

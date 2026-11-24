@@ -11,6 +11,7 @@ import {
   getPendingSyncActions,
   flushSyncQueue,
 } from '@/lib/offline/syncQueue';
+import { TEST_VENDOR_PIN } from './testEnv';
 
 describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline Sync', () => {
   beforeEach(async () => {
@@ -118,7 +119,7 @@ describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline 
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'X-Vendor-Pin': '2026',
+          'X-Vendor-Pin': TEST_VENDOR_PIN,
         },
         body: JSON.stringify({
           flag: 'SAFETY_CAR',
@@ -214,9 +215,9 @@ describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline 
       expect(unauthData.success).toBe(false);
       expect(unauthData.error).toContain('X-Vendor-Pin');
 
-      // 3. Vendor Orders endpoint: authorize valid staff PIN 2026
+      // 3. Vendor Orders endpoint: authorize the valid staff PIN
       const authReq = new Request('http://localhost:3000/api/orders', {
-        headers: { 'X-Vendor-Pin': '2026' },
+        headers: { 'X-Vendor-Pin': TEST_VENDOR_PIN },
       });
       const authRes = await getOrdersRoute(authReq);
       expect(authRes.status).toBe(200);
@@ -339,7 +340,7 @@ describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline 
       } as unknown as Response);
 
       // 3. Flush queue
-      const result = await flushSyncQueue('2026');
+      const result = await flushSyncQueue(TEST_VENDOR_PIN);
       expect(result.resolved).toBe(1);
       expect(result.failed).toBe(0);
 

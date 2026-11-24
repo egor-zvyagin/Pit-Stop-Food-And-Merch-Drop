@@ -24,78 +24,94 @@ export interface SignedDigitalPass {
   qrPayload: string;       // Formatted string: AGPC1.<payloadBase64>.<sigBase64>
 }
 
-// Canonical default Ed25519 keypair for AGPC-2027-KEY-01 (deterministic SHA-256 seed fallback)
-const DEFAULT_PRIVATE_KEY_PKCS8_BASE64 = 'MC4CAQAwBQYDK2VwBCIEIAb3jAxXlfcxpf8sLeX1PB030hkFhhNzmmytI9drOMjI';
-const DEFAULT_PUBLIC_KEY_SPKI_BASE64 = 'MCowBQYDK2VwAyEAXTZ23IPCQi9z2B0U4g6wNDVqanRuS3goJ9ULNdegGMY=';
-
-// In-memory keypair cache
-let cachedKeypair: { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject } | null = null;
+// Keypair cache. Held on globalThis so every route bundle in one server
+// process shares the same key (Next.js dev mode can load this module more
+// than once).
+type Ed25519Keypair = { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject };
+const globalKeyStore = globalThis as unknown as { __pitstopEd25519Keypair?: Ed25519Keypair };
 
 /**
- * Retrieves or initializes the Ed25519 signing keypair.
- * If base64 keys are configured in environment variables, they are loaded.
- * Supports both 48-byte PKCS8 DER base64 and 32-byte raw seed base64.
- * Otherwise, falls back to the canonical default keypair.
+ * Builds a keypair from ED25519_PRIVATE_KEY_BASE64 (and, optionally,
+ * ED25519_PUBLIC_KEY_BASE64). Accepts 48-byte PKCS8 DER or a 32-byte raw seed
+ * for the private key, and 44-byte SPKI DER or 32 raw bytes for the public key.
+ * Throws if a configured key is malformed: a bad key is a deployment error and
+ * must never be papered over with a substitute.
  */
-export function getKeypair(): { publicKey: crypto.KeyObject; privateKey: crypto.KeyObject } {
-  if (cachedKeypair) {
-    return cachedKeypair;
+function loadKeypairFromEnv(privB64: string, pubB64?: string): Ed25519Keypair {
+  const privBuffer = Buffer.from(privB64, 'base64');
+  let privDer: Buffer;
+
+  if (privBuffer.length === 48) {
+    // Full PKCS8 DER
+    privDer = privBuffer;
+  } else if (privBuffer.length === 32) {
+    // Raw 32-byte seed: prepend standard Ed25519 PKCS8 DER header
+    const pkcs8Header = Buffer.from('302e020100300506032b657004220420', 'hex');
+    privDer = Buffer.concat([pkcs8Header, privBuffer]);
+  } else {
+    throw new Error(
+      `ED25519_PRIVATE_KEY_BASE64 has an unexpected length (${privBuffer.length} bytes; expected 48 or 32)`
+    );
   }
 
-  try {
-    const privB64 = process.env.ED25519_PRIVATE_KEY_BASE64;
-    const pubB64 = process.env.ED25519_PUBLIC_KEY_BASE64;
-
-    if (privB64) {
-      const privBuffer = Buffer.from(privB64, 'base64');
-      let privDer: Buffer;
-
-      if (privBuffer.length === 48) {
-        // Full PKCS8 DER
-        privDer = privBuffer;
-      } else if (privBuffer.length === 32) {
-        // Raw 32-byte seed: prepend standard Ed25519 PKCS8 DER header
-        const pkcs8Header = Buffer.from('302e020100300506032b657004220420', 'hex');
-        privDer = Buffer.concat([pkcs8Header, privBuffer]);
-      } else {
-        throw new Error(`Unexpected private key length: ${privBuffer.length} bytes`);
-      }
-
-      const privateKey = crypto.createPrivateKey({ key: privDer, format: 'der', type: 'pkcs8' });
-
-      let publicKey: crypto.KeyObject;
-      if (pubB64) {
-        const pubBuffer = Buffer.from(pubB64, 'base64');
-        let pubDer: Buffer;
-        if (pubBuffer.length === 44) {
-          pubDer = pubBuffer;
-        } else if (pubBuffer.length === 32) {
-          // Prepend Ed25519 SPKI DER header
-          const spkiHeader = Buffer.from('302a300506032b6570032100', 'hex');
-          pubDer = Buffer.concat([spkiHeader, pubBuffer]);
-        } else {
-          pubDer = pubBuffer;
-        }
-        publicKey = crypto.createPublicKey({ key: pubDer, format: 'der', type: 'spki' });
-      } else {
-        publicKey = crypto.createPublicKey(privateKey);
-      }
-
-      cachedKeypair = { publicKey, privateKey };
-      return cachedKeypair;
-    }
-  } catch (e) {
-    console.warn('Could not load Ed25519 keys from env, falling back to default keypair:', e);
-  }
-
-  // Load canonical default keypair
-  const privDer = Buffer.from(DEFAULT_PRIVATE_KEY_PKCS8_BASE64, 'base64');
-  const pubDer = Buffer.from(DEFAULT_PUBLIC_KEY_SPKI_BASE64, 'base64');
   const privateKey = crypto.createPrivateKey({ key: privDer, format: 'der', type: 'pkcs8' });
+
+  if (!pubB64) {
+    return { privateKey, publicKey: crypto.createPublicKey(privateKey) };
+  }
+
+  const pubBuffer = Buffer.from(pubB64, 'base64');
+  // Prepend the Ed25519 SPKI DER header when given 32 raw bytes
+  const pubDer =
+    pubBuffer.length === 32
+      ? Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), pubBuffer])
+      : pubBuffer;
   const publicKey = crypto.createPublicKey({ key: pubDer, format: 'der', type: 'spki' });
 
-  cachedKeypair = { publicKey, privateKey };
-  return cachedKeypair;
+  // The two variables must describe the same keypair, or every pass this
+  // server signs would fail verification at the kiosk.
+  const derived = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+  if (!derived.equals(publicKey.export({ type: 'spki', format: 'der' }))) {
+    throw new Error('ED25519_PUBLIC_KEY_BASE64 does not match ED25519_PRIVATE_KEY_BASE64');
+  }
+  return { privateKey, publicKey };
+}
+
+/**
+ * Returns the Ed25519 signing keypair.
+ *
+ * - With ED25519_PRIVATE_KEY_BASE64 set, that key is used.
+ * - Without it, `next dev` and the test runner (NODE_ENV "development" or
+ *   "test") get a throwaway keypair generated for this process only.
+ * - Anywhere else (production, scripts) a missing key is a hard error. There
+ *   is no built-in default key: a key that ships in the source code is public,
+ *   and anyone could use it to forge passes.
+ */
+export function getKeypair(): Ed25519Keypair {
+  if (globalKeyStore.__pitstopEd25519Keypair) {
+    return globalKeyStore.__pitstopEd25519Keypair;
+  }
+
+  const privB64 = process.env.ED25519_PRIVATE_KEY_BASE64;
+  let keypair: Ed25519Keypair;
+
+  if (privB64) {
+    keypair = loadKeypairFromEnv(privB64, process.env.ED25519_PUBLIC_KEY_BASE64);
+  } else if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+    keypair = crypto.generateKeyPairSync('ed25519');
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(
+        '[pass-signer] ED25519_PRIVATE_KEY_BASE64 is not set. Using a throwaway signing key for this dev session; passes will not verify after a restart.'
+      );
+    }
+  } else {
+    throw new Error(
+      'ED25519_PRIVATE_KEY_BASE64 is not set. Refusing to sign passes without a configured key. Run "npm run keygen" to create one.'
+    );
+  }
+
+  globalKeyStore.__pitstopEd25519Keypair = keypair;
+  return keypair;
 }
 
 /**
@@ -155,9 +171,6 @@ export const signPass = issueSignedPass;
  * Returns the public key in SPKI DER Base64 format.
  */
 export function getPublicKeyBase64(): string {
-  if (process.env.ED25519_PUBLIC_KEY_BASE64) {
-    return process.env.ED25519_PUBLIC_KEY_BASE64;
-  }
   const { publicKey } = getKeypair();
   const spkiDer = publicKey.export({ type: 'spki', format: 'der' });
   return Buffer.from(spkiDer).toString('base64');

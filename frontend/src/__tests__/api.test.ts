@@ -8,6 +8,7 @@ import { GET as getInventoryRoute } from '@/app/api/inventory/route';
 import { GET as getStationsRoute } from '@/app/api/stations/capacity/route';
 import { POST as verifyTicketRoute } from '@/app/api/auth/verify-ticket/route';
 import { verifyQrPayload } from '@/lib/crypto/passVerifier';
+import { TEST_VENDOR_PIN } from './testEnv';
 
 describe('Serverless API Integration Test Suite', () => {
   let createdOrderId: string;
@@ -158,7 +159,7 @@ describe('Serverless API Integration Test Suite', () => {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'X-Vendor-Pin': '2026',
+        'X-Vendor-Pin': TEST_VENDOR_PIN,
       },
       body: JSON.stringify({ status: 'READY_FOR_PICKUP' }),
     });
