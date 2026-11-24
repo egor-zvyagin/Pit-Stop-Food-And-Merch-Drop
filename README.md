@@ -24,7 +24,7 @@
 | Service | Target URL | Credentials / Parameters | Description |
 |---|---|---|---|
 | **Fan Web Application** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-3820-X` | Mobile-optimized fan ordering, live tracker, digital pass & history |
-| **Vendor Kiosk Terminal** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor) | Staff PIN: `2026` | Concession terminal with 8-bay lockers, race control & offline outbox |
+| **Vendor Kiosk Terminal** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor) | Staff PIN: set in `VENDOR_ACCESS_PIN` (not published) | Concession terminal with 8-bay lockers, race control & offline outbox |
 | **Public Key Endpoint** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key](https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key) | None (Public / Cached) | Ed25519 public key in SPKI DER Base64 format |
 | **Secondary Demo Ticket** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-9014-P` | Hui Wen Chew (Brabham Grandstand, Turn 4) |
 | **Target AWS Region** | `ap-southeast-2` (Sydney) | Profile: `personal` | 100% Serverless scale-to-zero ($0.00 idle infrastructure cost) |
@@ -37,7 +37,7 @@
 flowchart TD
     subgraph ClientLayer["Client & Kiosk Layer"]
         FanPWA["Fan Mobile Web / PWA\n(Group Orders, Live Tracker /track/[orderId], History)"]
-        VendorKiosk["Trackside Concession Kiosk (/vendor)\n(PIN 2026, 8-Bay Lockers, Race Control Panel)"]
+        VendorKiosk["Trackside Concession Kiosk (/vendor)\n(Staff PIN, 8-Bay Lockers, Race Control Panel)"]
         OfflineSyncOutbox["Offline Fulfillment Outbox (syncQueue.ts)\n(Airplane Mode Simulator + Auto-Sync)"]
         OfflineEngine["Isomorphic Ed25519 Verifier (@noble/curves)"]
         LocalCache["OfflineNonceRegistry (Replay Cache)"]
@@ -57,7 +57,7 @@ flowchart TD
             OrderAPI["/api/orders (Zod Schema, Token-Bucket Rate Limiter, TransactWriteItems)"]
             HistoryAPI["/api/orders/history (GSI1 Fan Queries)"]
             PublicTrackAPI["/api/orders/[id]/public (Zero-Secret Read-Only Tracking)"]
-            StatusAPI["/api/orders/[id]/status (PIN 2026 Guard)"]
+            StatusAPI["/api/orders/[id]/status (Staff PIN Guard)"]
             PaymentAPI["/api/payment/checkout (Idempotent Payment)"]
             RewardsAPI["/api/rewards (Loyalty Points & Badges)"]
             CryptoAPI["/api/crypto/public-key (SPKI Ed25519)"]
@@ -144,7 +144,7 @@ Pit Stop v3.0 elevates the ecosystem into a resilient, production-hardened platf
 - **Automatic Reconnection Flush:** Uses browser `online` events to automatically flush the outbox to `PATCH /api/orders/[id]/status` upon network restoration, complete with retry tracking and error toasts.
 
 ### 5. Fan Order History & Zero-Secret Public Tracking
-- **Fan Order History (`/api/orders/history?ticketCode=...`):** High-speed GSI1 queries sorted newest-first, providing fans with order logs, receipt totals, and 1-tap reordering. Vendor orders endpoint `GET /api/orders` remains strictly protected behind `X-Vendor-Pin: 2026`.
+- **Fan Order History (`/api/orders/history?ticketCode=...`):** High-speed GSI1 queries sorted newest-first, providing fans with order logs, receipt totals, and 1-tap reordering. Vendor orders endpoint `GET /api/orders` remains strictly protected behind `X-Vendor-Pin`.
 - **Zero-Secret Public Live Tracker (`/track/[orderId]`):** Shareable link allowing row mates to monitor order preparation. Adheres to a strict zero-secret contract: `qrPayload`, `signatureBase64`, and `pinCode` are strictly stripped and `undefined`.
 - **Group Order Mode:** Single spectator row-collector ordering with optional seat notes (e.g. *"Clark Stand Row H, Seats 14-16"*).
 
@@ -234,7 +234,7 @@ npm run test:e2e
 
 - **Tablet Kiosk Vendor Flow (`1280x800` Viewport):**
   1. Navigates to `/vendor`.
-  2. Unlocks with Staff PIN `2026`.
+  2. Unlocks with the staff PIN given to the test server.
   3. Asserts 8-bay Locker Grid and Telemetry Bar render.
   4. Toggles Race Control flag.
   5. Enables Airplane Mode Simulator, marks order complete, asserts `"Pending Cloud Sync"` count increases.
@@ -264,7 +264,7 @@ Output:
 ▶ STEP 2: Fetching Server Public Key via GET /api/crypto/public-key...
   ✓ Algorithm: Ed25519 (spki-der-base64)
   ✓ Key ID: AGPC-2027-KEY-01
-  ✓ SPKI Base64: MCowBQYDK2VwAyEAXTZ23IPCQi9z2B0U...
+  ✓ SPKI Base64: MCowBQYDK2VwAyEA...
   ✓ Public key loaded into local passVerifier engine
 
 ▶ STEP 3: Submitting Order via POST /api/orders (PITSTOP15 Promo Applied)...
@@ -297,7 +297,7 @@ Output:
 
 ▶ STEP 8: Updating Order Status to COMPLETED via PATCH /api/orders/[id]/status...
   ✓ Security check: unauthorized PIN rejected with 401
-  ✓ Vendor marked order COMPLETED (Staff PIN: 2026 verified)
+  ✓ Vendor marked order COMPLETED (staff PIN verified)
 
 ▶ STEP 9: Verifying Fan Rewards Balance & Badges via GET /api/rewards...
   ✓ Holder Name: Egor Zvyagin (GP-3820-X)
@@ -337,11 +337,17 @@ cp .env.example .env.local
 Key variables:
 ```bash
 NEXT_PUBLIC_APP_URL="http://localhost:3000"
-VENDOR_ACCESS_PIN="2026"
+VENDOR_ACCESS_PIN="<choose your own>"   # required: no default exists
 ED25519_KEY_ID="AGPC-2027-KEY-01"
 DYNAMODB_TABLE_NAME="pitstop_data"
 AWS_REGION="ap-southeast-2"
 ```
+
+Secrets have no built-in defaults:
+
+- **`VENDOR_ACCESS_PIN`** must be set, or every vendor request is refused.
+- **`ED25519_PRIVATE_KEY_BASE64`** signs the passes. `npm run dev` and the tests generate a throwaway key when it is empty. `npm run start`, `npm run seed` and any deployment need a real one: create it with `npm run keygen`.
+- The vendor terminal fetches the matching public key from `/api/crypto/public-key` while online and caches it for offline scanning.
 
 ### 4. Seed Local Database & Data
 ```bash
@@ -352,7 +358,7 @@ npm run seed
 ```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) for the Fan Web App or [http://localhost:3000/vendor](http://localhost:3000/vendor) (PIN: `2026`) for the Vendor Terminal.
+Open [http://localhost:3000](http://localhost:3000) for the Fan Web App or [http://localhost:3000/vendor](http://localhost:3000/vendor) for the Vendor Terminal (it asks for the PIN you set in `VENDOR_ACCESS_PIN`).
 
 ### 6. Run Test Suites
 ```bash

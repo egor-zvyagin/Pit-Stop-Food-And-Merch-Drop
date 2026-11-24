@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { Icon } from '@iconify/react';
 import { PIT_STOPS } from '@/data/pitStopConstantData';
-import { verifyQrPayload } from '@/lib/crypto/passVerifier';
+import { hasVerificationPublicKey, verifyQrPayload } from '@/lib/crypto/passVerifier';
+import { ensureVerificationPublicKey } from '@/lib/crypto/verifierKeyStore';
 import { OfflineNonceRegistry } from '@/lib/crypto/nonceRegistry';
 import {
   enqueueSyncAction,
@@ -88,6 +89,12 @@ export default function VendorTerminalPage() {
     },
     []
   );
+
+  // Load the pass verification key: from the server when online, otherwise
+  // from this terminal's cached copy.
+  useEffect(() => {
+    void ensureVerificationPublicKey();
+  }, []);
 
   // Hydrate PIN gate from sessionStorage
   useEffect(() => {
@@ -265,6 +272,10 @@ export default function VendorTerminalPage() {
     try {
       // 1. Cryptographic Ed25519 QR pass payload
       if (trimmed.startsWith('AGPC1.')) {
+        // A scan can arrive before the key finished loading on mount.
+        if (!hasVerificationPublicKey()) {
+          await ensureVerificationPublicKey();
+        }
         const qrResult = verifyQrPayload(trimmed, selectedStation);
         const end = performance.now();
         const latency = end - start;

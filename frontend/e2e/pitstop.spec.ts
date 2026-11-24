@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { E2E_VENDOR_PIN } from './testEnv';
 
 /**
  * Pit Stop v3.0: Dual-Persona Trackside End-to-End Suite
@@ -14,7 +15,7 @@ import { test, expect } from '@playwright/test';
  *
  * 2. Tablet Kiosk Vendor Flow:
  *    - Navigates to /vendor
- *    - Unlocks with Staff PIN 2026
+ *    - Unlocks with the staff PIN configured for the test server
  *    - Asserts 8-bay Locker Grid and Telemetry Bar render
  *    - Toggles Race Control flag
  *    - Enables Airplane Mode Simulator, marks order complete, asserts Pending Cloud Sync increases
@@ -142,10 +143,10 @@ test.describe('Pit Stop v3.0: Tablet Kiosk Vendor Flow', () => {
     // 1. Navigates to /vendor
     await page.goto('/vendor');
 
-    // 2. Unlocks with Staff PIN 2026
+    // 2. Unlocks with the staff PIN the test server was started with
     const pinInput = page.getByPlaceholder(/Enter 4-digit PIN/i);
     await expect(pinInput).toBeVisible();
-    await pinInput.fill('2026');
+    await pinInput.fill(E2E_VENDOR_PIN);
 
     const unlockBtn = page.getByRole('button', { name: /Unlock Terminal/i });
     await unlockBtn.click();

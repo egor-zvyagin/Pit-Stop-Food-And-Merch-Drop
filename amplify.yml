@@ -5,6 +5,11 @@ applications:
       phases:
         preBuild:
           commands:
+            # Fail the build rather than deploy without its secrets: the app has
+            # no default PIN or signing key to fall back on.
+            - |
+              [ -n "${VENDOR_ACCESS_PIN:-}" ] || { echo "Missing required environment variable: VENDOR_ACCESS_PIN"; exit 1; }
+              [ -n "${ED25519_PRIVATE_KEY_BASE64:-}" ] || { echo "Missing required environment variable: ED25519_PRIVATE_KEY_BASE64"; exit 1; }
             - |
               printf "AWS_REGION=%s\nDYNAMODB_TABLE_NAME=%s\nUSE_LOCAL_STORAGE=%s\nED25519_KEY_ID=%s\nED25519_PRIVATE_KEY_BASE64=%s\nED25519_PUBLIC_KEY_BASE64=%s\nVENDOR_ACCESS_PIN=%s\nNEXT_PUBLIC_APP_URL=%s\n" \
                 "${AWS_REGION:-ap-southeast-2}" \
@@ -12,8 +17,8 @@ applications:
                 "${USE_LOCAL_STORAGE:-false}" \
                 "${ED25519_KEY_ID:-AGPC-2027-KEY-01}" \
                 "${ED25519_PRIVATE_KEY_BASE64}" \
-                "${ED25519_PUBLIC_KEY_BASE64}" \
-                "${VENDOR_ACCESS_PIN:-2026}" \
+                "${ED25519_PUBLIC_KEY_BASE64:-}" \
+                "${VENDOR_ACCESS_PIN}" \
                 "${NEXT_PUBLIC_APP_URL:-https://main.d3m92lj3xoqgf9.amplifyapp.com}" > .env.production
             - npm ci --prefer-offline --include=dev --legacy-peer-deps
         build:
