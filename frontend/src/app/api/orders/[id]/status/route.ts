@@ -70,6 +70,9 @@ export async function GET(
     data: {
       ...publicView,
       pinCode: order.pinCode,
+      createdAt: order.createdAt,
+      isGroupOrder: order.isGroupOrder,
+      seatNote: order.seatNote,
       paymentStatus: order.paymentStatus || 'PENDING',
       qrPayload: order.qrPayload,
       signatureBase64: order.signatureBase64,
