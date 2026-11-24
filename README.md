@@ -319,6 +319,18 @@ bash scripts/verify.sh
 
 ---
 
+## How changes ship
+
+1. Work happens on a branch and arrives as a pull request.
+2. CI runs `scripts/verify.sh` as the required `verify` check. A ruleset on `main` blocks merging until it passes and blocks force pushes and deletion.
+3. Pull requests can use auto-merge, so they merge as soon as `verify` is green.
+4. AWS Amplify deploys `main`.
+5. Infrastructure changes go through the "Deploy Infrastructure (Terraform)" workflow, which signs in to AWS with GitHub OIDC (no stored keys), produces a plan, and applies it only when asked. The DynamoDB table has deletion protection and `prevent_destroy`.
+
+What an AI coding agent may do on its own in this repository, and what still needs the owner, is written down in [`AGENTS.md`](./AGENTS.md).
+
+---
+
 ## Cloud Architecture & Cost Profile
 
 The platform operates on a **100% Scale-to-Zero Serverless Architecture** in AWS Sydney (`ap-southeast-2`):
