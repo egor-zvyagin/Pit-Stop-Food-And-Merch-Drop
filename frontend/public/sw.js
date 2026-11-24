@@ -9,15 +9,22 @@
  * - Network-first with cache-fallback for navigation pages during trackside signal loss
  */
 
-const CACHE_NAME = 'pitstop-cache-v1';
+const CACHE_NAME = 'pitstop-cache-v2';
+
+// Icon data is fetched from these hosts at runtime; cached so icons survive offline.
+const ICON_API_HOSTS = ['api.iconify.design', 'api.simplesvg.com', 'api.unisvg.com'];
 
 const STATIC_ASSETS = [
   '/',
+  '/order',
+  '/checkout',
   '/collect',
   '/pass',
   '/vendor',
   '/rewards',
   '/manifest.json',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
   '/images/redbull.jpg',
   '/images/loaded-fries.jpg',
   '/images/beer.jpg',
@@ -100,9 +107,33 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Strategy 2: Crypto Public Key API -> Stale-While-Revalidate with Cache Fallback
-  // Crucial for trackside vendor offline Ed25519 pass verification
+  // Strategy 2: Pass verification key -> Network First with Cache Fallback.
+  // Online, a kiosk always gets the current key (so a rotated key takes effect
+  // at once); offline, it gets the last one it saw.
   if (url.pathname === '/api/crypto/public-key') {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const networkResponse = await fetch(request);
+          if (networkResponse && networkResponse.status === 200) {
+            cache.put(request, networkResponse.clone());
+          }
+          return networkResponse;
+        } catch {
+          const cachedResponse = await cache.match(request);
+          return cachedResponse || new Response(JSON.stringify({ error: 'Offline - Public key unavailable' }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      })
+    );
+    return;
+  }
+
+  // Strategy 2b: Icon data from the Iconify API -> Stale-While-Revalidate.
+  // Icons render from cache at once and offline; the cache refreshes in the background.
+  if (ICON_API_HOSTS.includes(url.hostname)) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {
         const cachedResponse = await cache.match(request);
@@ -113,13 +144,11 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         }).catch(() => null);
 
-        // Return cached key immediately if available, otherwise wait for network
         if (cachedResponse) {
-          fetchPromise; // run in background
+          event.waitUntil(fetchPromise);
           return cachedResponse;
         }
-        const freshResponse = await fetchPromise;
-        return freshResponse || new Response(JSON.stringify({ error: 'Offline - Public key unavailable' }), {
+        return (await fetchPromise) || new Response('{}', {
           status: 503,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -175,8 +204,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Other API calls are live data: never answer them from cache.
+  if (url.pathname.startsWith('/api/')) {
+    return;
+  }
+
   // Default: Network with Cache Fallback
   event.respondWith(
-    fetch(request).catch(() => caches.match(request))
+    fetch(request).catch(async () => (await caches.match(request)) || Response.error())
   );
 });

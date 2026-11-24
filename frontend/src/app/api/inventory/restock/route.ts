@@ -5,6 +5,10 @@ import { InventoryRestockSchema } from '@/lib/validation/schemas';
 import { createRateLimiter } from '@/lib/validation/rateLimit';
 import { createRequestLogger, generateRequestId } from '@/lib/logger';
 
+// Always run on request: these responses are live data and must never be
+// frozen into the build.
+export const dynamic = 'force-dynamic';
+
 const rateLimiter = createRateLimiter('vendor');
 
 export async function POST(request: Request) {

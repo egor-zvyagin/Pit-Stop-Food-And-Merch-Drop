@@ -6,9 +6,9 @@
 [![Next.js 14](https://img.shields.io/badge/Next.js-14.x-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
-[![Vitest](https://img.shields.io/badge/Vitest-69%2F69_Passed-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
+[![Vitest](https://img.shields.io/badge/Vitest-94_tests-success?style=for-the-badge&logo=vitest)](./frontend/src/__tests__)
 [![Playwright](https://img.shields.io/badge/Playwright-E2E_Dual--Persona-darkgreen?style=for-the-badge&logo=playwright)](./frontend/e2e)
-[![MapLibre GL v5](https://img.shields.io/badge/MapLibre_GL-v5.x_Zero--Key-3884FF?style=for-the-badge&logo=mapbox)](https://maplibre.org/)
+[![MapLibre GL v5](https://img.shields.io/badge/MapLibre_GL-v5.x_Zero--Key-3884FF?style=for-the-badge&logo=maplibre)](https://maplibre.org/)
 [![DynamoDB TransactWriteItems](https://img.shields.io/badge/DynamoDB-Atomic_TransactWriteItems-orange?style=for-the-badge&logo=amazon-dynamodb)](./frontend/src/lib/db)
 [![Race Control](https://img.shields.io/badge/Race_Control-Live_Flag_Yield_Pricing-yellow?style=for-the-badge)](./frontend/src/app/api/circuit)
 [![Terraform S3 Backend](https://img.shields.io/badge/Terraform-S3_Remote_State_%26_Locking-844FBA?style=for-the-badge&logo=terraform)](./infra/terraform)
@@ -19,15 +19,25 @@
 
 ---
 
-## Live Deployment & Access Credentials
+## About this repository
+
+This is Egor Zvyagin's continued, solo development of Pit Stop. The project began as an RMIT capstone (COSC2408, Team 28) built for the Australian Grand Prix Corporation, and the original team is credited [below](#original-capstone-team). Work after the capstone continues in this fork.
+
+It is a working prototype, not a production service. [What is real and what is simulated](#what-is-real-and-what-is-simulated) says exactly which parts are which.
+
+---
+
+## Live Deployment
 
 | Service | Target URL | Credentials / Parameters | Description |
 |---|---|---|---|
 | **Fan Web Application** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-3820-X` | Mobile-optimized fan ordering, live tracker, digital pass & history |
 | **Vendor Kiosk Terminal** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor](https://main.d3m92lj3xoqgf9.amplifyapp.com/vendor) | Staff PIN: set in `VENDOR_ACCESS_PIN` (not published) | Concession terminal with 8-bay lockers, race control & offline outbox |
 | **Public Key Endpoint** | [https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key](https://main.d3m92lj3xoqgf9.amplifyapp.com/api/crypto/public-key) | None (Public / Cached) | Ed25519 public key in SPKI DER Base64 format |
-| **Secondary Demo Ticket** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-9014-P` | Hui Wen Chew (Brabham Grandstand, Turn 4) |
+| **Secondary Demo Ticket** | [https://main.d3m92lj3xoqgf9.amplifyapp.com](https://main.d3m92lj3xoqgf9.amplifyapp.com) | Ticket: `GP-9014-P` | Second demo profile (Brabham Grandstand, Turn 4) |
 | **Target AWS Region** | `ap-southeast-2` (Sydney) | Profile: `personal` | 100% Serverless scale-to-zero ($0.00 idle infrastructure cost) |
+
+The ticket codes above are seeded sample profiles, not credentials. The staff PIN is a secret and is not published; ask the repository owner for demo access to the vendor terminal.
 
 ---
 
@@ -50,7 +60,7 @@ flowchart TD
     subgraph AWSCloud["AWS Asia Pacific - Sydney (ap-southeast-2)"]
         CloudFront["AWS Amplify Hosting / CloudFront CDN"]
         
-        subgraph ServerlessCompute["Next.js 14 Serverless SSR (Amplify Gen 2)"]
+        subgraph ServerlessCompute["Next.js 14 Serverless SSR (Amplify Hosting)"]
             CatalogAPI["/api/inventory & /api/inventory/restock"]
             RaceControlAPI["/api/circuit/status (Live Flags: Green, Safety Car, Red, Post-Race)"]
             StationAPI["/api/stations/capacity & /api/stations/lockers (#01..#08)"]
@@ -58,7 +68,7 @@ flowchart TD
             HistoryAPI["/api/orders/history (GSI1 Fan Queries)"]
             PublicTrackAPI["/api/orders/[id]/public (Zero-Secret Read-Only Tracking)"]
             StatusAPI["/api/orders/[id]/status (Staff PIN Guard)"]
-            PaymentAPI["/api/payment/checkout (Idempotent Payment)"]
+            PaymentAPI["/api/payment/checkout (Simulated Payment)"]
             RewardsAPI["/api/rewards (Loyalty Points & Badges)"]
             CryptoAPI["/api/crypto/public-key (SPKI Ed25519)"]
             PassSigner["Server Ed25519 Pass Signer (crypto.sign)"]
@@ -135,7 +145,7 @@ Pit Stop v3.0 elevates the ecosystem into a resilient, production-hardened platf
 - **Live Circuit Banner:** Polled at 10s intervals (pausing when tab is backgrounded) and seamlessly integrated into Home, Order, and Checkout pages.
 
 ### 3. Smart Locker Bay Allocation (`#01`..`#08`)
-- **Express Locker Management:** Automated allocation of express locker slots `#01` through `#08` at each concession pod based on active orders (`RECEIVED`, `PREPARING`, `READY_FOR_PICKUP`), with graceful overflow queue `#Q1`..`#Q20`.
+- **Express Locker Management:** Automated allocation of express locker slots `#01` through `#08` at each concession pod based on active orders (`RECEIVED`, `PREPARING`, `READY_FOR_PICKUP`), with graceful overflow queue `#Q1`..`#Q20`. Allocation reads current orders and then assigns, so it is not yet atomic (see known limits).
 - **Vendor Locker Grid (`LockerBayGrid.tsx`):** Real-time 8-bay interactive grid on the vendor kiosk indicating Available, Preparing, and Ready orders with quick customer PIN identification.
 
 ### 4. Offline Fulfillment Outbox Synchronization (`syncQueue.ts`)
@@ -145,13 +155,42 @@ Pit Stop v3.0 elevates the ecosystem into a resilient, production-hardened platf
 
 ### 5. Fan Order History & Zero-Secret Public Tracking
 - **Fan Order History (`/api/orders/history?ticketCode=...`):** High-speed GSI1 queries sorted newest-first, providing fans with order logs, receipt totals, and 1-tap reordering. Vendor orders endpoint `GET /api/orders` remains strictly protected behind `X-Vendor-Pin`.
-- **Zero-Secret Public Live Tracker (`/track/[orderId]`):** Shareable link allowing row mates to monitor order preparation. Adheres to a strict zero-secret contract: `qrPayload`, `signatureBase64`, and `pinCode` are strictly stripped and `undefined`.
+- **Zero-Secret Public Live Tracker (`/track/[orderId]`):** Shareable link allowing row mates to monitor order preparation. An order ID only ever unlocks a progress view. The collection PIN and signed QR pass are returned solely to the order's owner (who sends the order PIN) or to staff (who send the staff PIN), and order history never includes them.
 - **Group Order Mode:** Single spectator row-collector ordering with optional seat notes (e.g. *"Clark Stand Row H, Seats 14-16"*).
 
 ### 6. Production Infrastructure as Code (Terraform & AWS)
 - **S3 Remote State with Native Lockfiles:** Migrated to S3 bucket `pitstop-tfstate-608531435714-ap-southeast-2` using Terraform S3 backend with `use_lockfile = true` for cost-free, distributed state locking.
-- **GitHub Actions Keyless OIDC Federation:** Provisioned IAM OpenID Connect provider for `token.actions.githubusercontent.com` and least-privilege deployment role `pitstop-github-actions-terraform-role`, eliminating long-lived AWS access keys.
-- **CloudWatch Observability Dashboard & Alarms:** Provisioned free-tier dashboard `pitstop-production-dashboard` visualizing DynamoDB consumed RCU/WCU, latency percentiles, and automated alarm `pitstop-dynamodb-system-errors`.
+- **GitHub Actions Keyless OIDC Federation:** Provisioned IAM OpenID Connect provider for `token.actions.githubusercontent.com` and deployment role `pitstop-github-actions-terraform-role`, assumable only from this repository's `main` branch, eliminating long-lived AWS access keys.
+- **CloudWatch Observability Dashboard & Alarms:** Provisioned free-tier dashboard `pitstop-production-dashboard` visualizing DynamoDB consumed RCU/WCU, latency percentiles, and alarm `pitstop-dynamodb-system-errors` (no notification target is attached yet).
+
+---
+
+## What is real and what is simulated
+
+**Real, and covered by tests**
+- Ordering with server-side pricing, and atomic stock decrement in one DynamoDB transaction.
+- Ed25519-signed passes, verified offline at the vendor terminal with replay detection.
+- Vendor terminal, race-control flags, locker grid and the offline outbox that syncs on reconnect.
+- Live stock on the menu, order history, and the shareable progress tracker.
+- Installable PWA: the app shell and the vendor terminal open with no connection after one online visit.
+- DynamoDB persistence. A database failure returns an error; nothing is answered from memory.
+- Infrastructure as code (Terraform), keyless CI through GitHub OIDC, and one verify script shared by local runs and CI.
+
+**Simulated, and labelled as such**
+- **Payment.** There is no payment provider. Checkout says so on screen, and the payment endpoint only marks an order as paid for a caller holding that order's PIN.
+- **Ticket verification.** Two sample ticket profiles are seeded, and any other code beginning `GP-` is accepted as a generic fan. There is no link to a real ticketing system.
+- **Demo Mode.** On by default and switchable in Settings. It advances an order through its stages on a timer and, with no connection, creates a local sample order.
+- **Pod queue and walk times.** Seeded values scaled by the race flag, not live sensor data.
+- **Trackside location.** "Simulate Trackside" places you at the circuit for demonstrations.
+
+**Known limits**
+- Rate limiting and payment idempotency keys are held in memory per server instance, so they are best-effort on serverless.
+- Rewards history and the "points already awarded" check are also per instance.
+- Locker bay allocation is not atomic: two orders placed at the same moment can be given the same bay.
+- A fan is identified by ticket code alone, and the collection PIN is four digits.
+- Tests run on the in-memory store. The DynamoDB code path is tested with a stubbed client, not against a real table.
+- `npm audit` reports 7 advisories that need major upgrades (Next.js 14 to 16, MapLibre GL 5 to 6).
+- The GitHub Actions deployment role can manage IAM more broadly than this project needs.
 
 ---
 
@@ -160,17 +199,21 @@ Pit Stop v3.0 elevates the ecosystem into a resilient, production-hardened platf
 Pit Stop v3.0 features extensive automated testing across unit, integration, crypto, concurrency, security, and Playwright end-to-end browser automation.
 
 ```
-✓ src/lib/offline/__tests__/syncQueue.test.ts  (6 tests)     6ms
-✓ src/__tests__/geo.test.ts                    (24 tests)    7ms
-✓ src/__tests__/crypto.test.ts                 (11 tests)  109ms
-✓ src/__tests__/pricing.test.ts                (10 tests)    6ms
-✓ src/__tests__/api.test.ts                    (9 tests)   530ms
-✓ src/__tests__/v3Features.test.ts             (9 tests)  1437ms
+✓ src/__tests__/geo.test.ts                    (24 tests)
+✓ src/__tests__/crypto.test.ts                 (11 tests)
+✓ src/__tests__/secrets.test.ts                (11 tests)
+✓ src/__tests__/pricing.test.ts                (10 tests)
+✓ src/__tests__/api.test.ts                     (9 tests)
+✓ src/__tests__/v3Features.test.ts              (9 tests)
+✓ src/__tests__/dbFailure.test.ts               (8 tests)
+✓ src/__tests__/orderAccess.test.ts             (6 tests)
+✓ src/lib/offline/__tests__/syncQueue.test.ts   (6 tests)
 
-Test Files  6 passed (6)
-     Tests  69 passed (69)
-  Duration  1.71s
+Test Files  9 passed (9)
+     Tests  94 passed (94)
 ```
+
+Three suites guard the hardening work: `secrets.test.ts` (no PIN or key configured means requests are refused), `orderAccess.test.ts` (an order ID or ticket code never unlocks a PIN or pass) and `dbFailure.test.ts` (a failing DynamoDB returns an error, never invented data).
 
 ### Suite Breakdown
 
@@ -215,7 +258,7 @@ Test Files  6 passed (6)
 
 ### Playwright Dual-Persona Browser E2E Suite
 
-Playwright tests simulate complete customer and vendor journeys across realistic device viewports:
+Playwright tests simulate complete customer and vendor journeys across realistic device viewports. They run against the production build (`next build` + `next start`) on the in-memory store, 6 tests in total:
 
 ```bash
 cd frontend
@@ -231,6 +274,8 @@ npm run test:e2e
   6. Places order, verifies redirect to `/collect` or `/pass` with Ed25519 pass.
   7. Clicks Share Live Tracker, navigates to `/track/[orderId]`, asserts status stepper renders and zero QR/PIN is exposed.
   8. Checks Order History tab on `/collect` and verifies past orders render.
+
+- **Offline App Shell (both viewports):** visits once online, switches the network off, then confirms the fan app and the vendor terminal still open from the service worker cache.
 
 - **Tablet Kiosk Vendor Flow (`1280x800` Viewport):**
   1. Navigates to `/vendor`.
@@ -349,7 +394,8 @@ Secrets have no built-in defaults:
 - **`ED25519_PRIVATE_KEY_BASE64`** signs the passes. `npm run dev` and the tests generate a throwaway key when it is empty. `npm run start`, `npm run seed` and any deployment need a real one: create it with `npm run keygen`.
 - The vendor terminal fetches the matching public key from `/api/crypto/public-key` while online and caches it for offline scanning.
 
-### 4. Seed Local Database & Data
+### 4. Seed the Database (DynamoDB only)
+With `USE_LOCAL_STORAGE=true` (the default in `.env.example`) the app starts with sample data in memory and this step is not needed. To seed a real DynamoDB table, export your AWS credentials, `USE_LOCAL_STORAGE=false` and a signing key, then:
 ```bash
 npm run seed
 ```
@@ -362,10 +408,10 @@ Open [http://localhost:3000](http://localhost:3000) for the Fan Web App or [http
 
 ### 6. Run Test Suites
 ```bash
-# Run all Vitest unit and concurrency suites (69 tests)
+# Run all Vitest unit, security and concurrency suites (94 tests)
 npm test
 
-# Run Playwright browser E2E test suite (Mobile & Tablet Kiosk)
+# Run Playwright browser E2E suite against the production build (Mobile & Tablet Kiosk)
 npm run test:e2e
 
 # Run end-to-end 10-step smoke verification
@@ -376,6 +422,14 @@ npm run lint
 
 # Compile production build
 npm run build
+
+# Generate an Ed25519 signing keypair
+npm run keygen
+```
+
+To run every check exactly as CI does, from the repository root (needs Terraform installed):
+```bash
+bash scripts/verify.sh
 ```
 
 ---
@@ -384,20 +438,22 @@ npm run build
 
 The platform operates on a **100% Scale-to-Zero Serverless Architecture** in AWS Sydney (`ap-southeast-2`):
 
-- **AWS Amplify Gen 2:** Global CloudFront edge distribution + serverless SSR compute.
+- **AWS Amplify Hosting:** Global CloudFront edge distribution + serverless SSR compute for Next.js.
 - **Amazon DynamoDB Single-Table (`pitstop_data`):** On-demand billing (`PAY_PER_REQUEST`). Zero provisioned read/write capacity units (`RCU = 0, WCU = 0`). Under 25 GB AWS Free Tier limit, yielding **$0.00 idle cost**.
-- **Atomic Concurrency Protection:** `TransactWriteItems` with `ConditionCheckItem` prevents overselling during flash merchandise drops without costly distributed locking services.
+- **Atomic Concurrency Protection:** `TransactWriteItems` with conditional stock updates prevents overselling during flash merchandise drops without costly distributed locking services.
 - **Terraform Remote S3 Backend:** State stored in `pitstop-tfstate-608531435714-ap-southeast-2` with `use_lockfile = true` for cost-free, DynamoDB-less native state locking.
 - **GitHub Actions Keyless OIDC:** Secure role assumption via `token.actions.githubusercontent.com` eliminates long-lived secret storage.
 - **CloudWatch Free-Tier Dashboard:** Dashboard `pitstop-production-dashboard` and alarm `pitstop-dynamodb-system-errors` operate within the AWS CloudWatch Free Tier (up to 3 free dashboards and 10 free alarms).
 - **Automated Order Expiration (TTL):** Order records carry a 7-day TTL epoch attribute, automatically pruned by DynamoDB with zero consumed write capacity.
-- **AWS Budget Protection:** Configured with an automated $5.00/month threshold alert.
+- **AWS Budget Protection:** A $5.00/month budget alert is defined in Terraform (`budgets.tf`) and is off by default; set `enable_budget = true` and a real notification email to turn it on.
 
-For complete cloud deployment instructions, see [DEPLOYMENT_GUIDE.md](file:///Users/egorz/Desktop/new%20pit/DEPLOYMENT_GUIDE.md).
+For complete cloud deployment instructions, see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
 
 ---
 
-## Project Team & Governance
+## Original Capstone Team
+
+RMIT COSC2408, Team 28. Development after the capstone is by Egor Zvyagin alone.
 
 | Name | Role & Specialisation | GitHub Profile |
 |---|---|---|

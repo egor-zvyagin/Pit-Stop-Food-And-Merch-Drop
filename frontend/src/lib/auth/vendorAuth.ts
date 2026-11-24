@@ -16,7 +16,7 @@ export interface VendorAuthResult {
   misconfigured?: boolean;
 }
 
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a, 'utf-8');
   const right = Buffer.from(b, 'utf-8');
   // timingSafeEqual needs equal lengths; comparing against itself keeps the

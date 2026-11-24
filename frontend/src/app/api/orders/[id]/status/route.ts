@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
 import { db, OrderRecord } from '@/lib/db/client';
 import { validateVendorAuth } from '@/lib/auth/vendorAuth';
+import { isVendorRequest, resolveOrderAccess } from '@/lib/auth/orderAccess';
 import { UpdateOrderStatusSchema } from '@/lib/validation/schemas';
 import { createRateLimiter } from '@/lib/validation/rateLimit';
 import { createRequestLogger, generateRequestId } from '@/lib/logger';
+
+// Always run on request: these responses are live data and must never be
+// frozen into the build.
+export const dynamic = 'force-dynamic';
 
 const rateLimiter = createRateLimiter('vendor');
 
@@ -20,8 +25,10 @@ export async function GET(
     );
   }
 
-  // Lookup by ID or fallback to 4-digit PIN
-  const order = (await db.getOrderById(id)) || (await db.getOrderByPin(id));
+  // Looking an order up by its 4-digit PIN is a kiosk feature. Offered to the
+  // public it would let anyone walk all 10,000 PINs and list every order.
+  const vendor = isVendorRequest(request);
+  const order = (await db.getOrderById(id)) || (vendor ? await db.getOrderByPin(id) : undefined);
 
   if (!order) {
     return NextResponse.json(
@@ -30,24 +37,40 @@ export async function GET(
     );
   }
 
+  const access = resolveOrderAccess(request, order);
+  const circuit = await db.getCircuitState();
+
+  // What anyone holding the order ID may see: enough to follow progress.
+  const publicView = {
+    orderId: order.orderId,
+    status: order.status,
+    station: {
+      id: order.pickupStationId,
+      name: order.pickupStationName,
+      lockerNumber: order.counterNumber,
+      walkTimeMins: order.walkTimeMins,
+    },
+    raceAlert: {
+      active: circuit.flag !== 'GREEN_FLAG',
+      flag: circuit.flag,
+      condition: circuit.message,
+    },
+    items: order.items.map((item) => ({ name: item.name, quantity: item.quantity })),
+    updatedAt: order.updatedAt,
+  };
+
+  if (access === 'public') {
+    return NextResponse.json({ success: true, access, data: publicView });
+  }
+
+  // The order's owner (collection PIN) or staff (vendor PIN) get the rest.
   return NextResponse.json({
     success: true,
+    access,
     data: {
-      orderId: order.orderId,
+      ...publicView,
       pinCode: order.pinCode,
-      status: order.status,
       paymentStatus: order.paymentStatus || 'PENDING',
-      station: {
-        id: order.pickupStationId,
-        name: order.pickupStationName,
-        lockerNumber: order.counterNumber,
-        walkTimeMins: order.walkTimeMins,
-      },
-      raceAlert: {
-        active: true,
-        condition: 'Track Session Active (Green Flag)',
-        window: 'Optimal express pickup window open',
-      },
       qrPayload: order.qrPayload,
       signatureBase64: order.signatureBase64,
       items: order.items,
@@ -56,7 +79,6 @@ export async function GET(
       serviceFee: order.serviceFee,
       total: order.total,
       loyaltyPointsEarned: order.loyaltyPointsEarned,
-      updatedAt: order.updatedAt,
     },
   });
 }
@@ -104,8 +126,13 @@ export async function PATCH(
 
     const { status: targetStatus, pinCode: bodyPin } = parsed.data;
 
-    // Verify order exists before updating
-    const existing = (await db.getOrderById(id)) || (await db.getOrderByPin(id));
+    // Check X-Vendor-Pin authentication header
+    const auth = validateVendorAuth(request);
+
+    // Verify order exists before updating. Only staff may address an order by
+    // its PIN; everyone else must name the order ID.
+    const existing =
+      (await db.getOrderById(id)) || (auth.authenticated ? await db.getOrderByPin(id) : undefined);
     if (!existing) {
       logger.log({ status: 404, error: `Order '${id}' not found` });
       return NextResponse.json(
@@ -114,28 +141,21 @@ export async function PATCH(
       );
     }
 
-    // Check X-Vendor-Pin authentication header
-    const auth = validateVendorAuth(request);
-
-    // If not authenticated with vendor PIN, check if this is a legitimate fan self-collection
+    // Without the staff PIN, the only change allowed is a fan collecting their
+    // own order, proven by that order's collection PIN.
     if (!auth.authenticated) {
-      const clientPin =
-        request.headers.get('x-order-pin') ||
-        bodyPin ||
-        '';
-
       const isFanSelfCollection =
         targetStatus === 'COMPLETED' &&
-        (existing.status === 'READY_FOR_PICKUP' ||
-          existing.status === 'COMPLETED' ||
-          (clientPin && clientPin === existing.pinCode));
+        resolveOrderAccess(request, existing, bodyPin) === 'owner';
 
       if (!isFanSelfCollection) {
         logger.log({ status: 401, error: auth.error });
         return NextResponse.json(
           {
             success: false,
-            error: auth.error || 'Unauthorized: Invalid or missing X-Vendor-Pin header',
+            error: auth.misconfigured
+              ? auth.error
+              : 'Unauthorized: a valid staff PIN, or this order\'s collection PIN, is required',
           },
           { status: 401 }
         );

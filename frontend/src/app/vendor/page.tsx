@@ -306,7 +306,9 @@ export default function VendorTerminalPage() {
 
           if (!airplaneMode) {
             try {
-              const res = await fetch(`/api/orders/${encodeURIComponent(qrResult.payload.orderId)}/status`);
+              const res = await fetch(`/api/orders/${encodeURIComponent(qrResult.payload.orderId)}/status`, {
+                headers: { 'X-Vendor-Pin': vendorPin },
+              });
               const data = await res.json();
               if (data.success && data.data) {
                 setActiveOrder({
@@ -396,7 +398,9 @@ export default function VendorTerminalPage() {
       }
 
       if (!airplaneMode) {
-        const res = await fetch(`/api/orders/${encodeURIComponent(lookupCode)}/status`);
+        const res = await fetch(`/api/orders/${encodeURIComponent(lookupCode)}/status`, {
+          headers: { 'X-Vendor-Pin': vendorPin },
+        });
         const data = await res.json();
         const end = performance.now();
         const latency = end - start;

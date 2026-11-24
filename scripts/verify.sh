@@ -23,7 +23,7 @@ step "TypeScript";        npx tsc --noEmit
 step "ESLint";            npm run lint
 step "Unit tests";        npm test
 step "Production build";  npm run build
-step "End-to-end tests";  npm run test:e2e
+step "End-to-end tests";  E2E_SKIP_BUILD=1 npm run test:e2e
 
 cd "$ROOT/infra/terraform"
 step "terraform fmt";      terraform fmt -check -recursive

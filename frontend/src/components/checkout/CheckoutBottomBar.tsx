@@ -67,6 +67,11 @@ export default function CheckoutBottomBar({
                     }
                 </Typography>
             </Button>
+
+            {/* This prototype has no payment provider: be upfront about it. */}
+            <p className="pt-1 text-center text-[10px] leading-tight text-[var(--color-text-muted)]">
+                Prototype checkout · no payment is taken
+            </p>
         </BottomActionBar>
     );
 }

@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
+import { isVendorRequest, resolveOrderAccess } from '@/lib/auth/orderAccess';
 import { CheckoutSchema } from '@/lib/validation/schemas';
 import { createRateLimiter } from '@/lib/validation/rateLimit';
 import { createRequestLogger, generateRequestId } from '@/lib/logger';
+
+// Always run on request: these responses are live data and must never be
+// frozen into the build.
+export const dynamic = 'force-dynamic';
 
 const rateLimiter = createRateLimiter('orders');
 
@@ -21,7 +26,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    // 1. Idempotency Key check from header or body
+    // 1. Idempotency key from header or body
     const headerIdempotencyKey =
       request.headers.get('idempotency-key') ||
       request.headers.get('Idempotency-Key');
@@ -55,25 +60,38 @@ export async function POST(request: Request) {
       currency = 'AUD',
       pointsRedeemed = 0,
       idempotencyKey: bodyIdempotencyKey,
+      pinCode: bodyPin,
     } = parsed.data;
 
     const resolvedMethod = method || aliasMethod || 'apple_pay';
     const idempotencyKey = headerIdempotencyKey || bodyIdempotencyKey;
 
-    if (idempotencyKey && idempotencyStore.has(idempotencyKey)) {
-      const cached = idempotencyStore.get(idempotencyKey)!;
-      logger.log({ status: cached.statusCode, dbOp: 'idempotent-replay' });
-      return NextResponse.json(cached.payload, { status: cached.statusCode });
-    }
-
-    // 2. Validate order exists in database
-    const order = (await db.getOrderById(orderId)) || (await db.getOrderByPin(orderId));
+    // 2. Validate order exists. Only staff may address an order by its PIN.
+    const order =
+      (await db.getOrderById(orderId)) ||
+      (isVendorRequest(request) ? await db.getOrderByPin(orderId) : undefined);
     if (!order) {
       logger.log({ status: 404, error: `Order '${orderId}' not found in database` });
       return NextResponse.json(
         { success: false, error: `Order '${orderId}' not found in database` },
         { status: 404 }
       );
+    }
+
+    // An order ID alone must not be enough to mark an order as paid: the
+    // caller has to hold the order's collection PIN or the staff PIN.
+    if (resolveOrderAccess(request, order, bodyPin) === 'public') {
+      logger.log({ status: 401, error: 'Missing or invalid order PIN' });
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized: this order\'s collection PIN is required' },
+        { status: 401 }
+      );
+    }
+
+    if (idempotencyKey && idempotencyStore.has(idempotencyKey)) {
+      const cached = idempotencyStore.get(idempotencyKey)!;
+      logger.log({ status: cached.statusCode, dbOp: 'idempotent-replay' });
+      return NextResponse.json(cached.payload, { status: cached.statusCode });
     }
 
     // 3. Update order payment status to PAID

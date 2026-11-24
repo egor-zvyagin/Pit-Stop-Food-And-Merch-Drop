@@ -447,6 +447,7 @@ async function runSmoke() {
       orderId: order.orderId,
       amount: order.total,
       paymentMethod: 'apple_pay',
+      pinCode: order.pinCode,
     },
     idempotencyKey
   );
@@ -462,6 +463,7 @@ async function runSmoke() {
       orderId: order.orderId,
       amount: order.total,
       paymentMethod: 'apple_pay',
+      pinCode: order.pinCode,
     },
     idempotencyKey
   );
