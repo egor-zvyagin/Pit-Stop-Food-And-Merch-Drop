@@ -134,7 +134,7 @@ describe('Pit Stop v3.0 Feature Suite: Concurrency, Security, Lockers & Offline 
       expect(patchData.circuit.offPeakDiscountPct).toBe(0);
 
       // Verify GET /api/circuit/status reflects the update
-      const getRes = await getCircuitStatusRoute();
+      const getRes = await getCircuitStatusRoute(new Request("http://localhost/api/circuit/status"));
       expect(getRes.status).toBe(200);
       const getData = await getRes.json();
       expect(getData.flag).toBe('SAFETY_CAR');

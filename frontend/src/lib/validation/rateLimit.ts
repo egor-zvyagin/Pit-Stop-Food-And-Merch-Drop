@@ -1,9 +1,15 @@
 /**
- * Pit Stop v3: Per-Instance Token-Bucket Rate Limiter
+ * Token-bucket rate limiting, per client and per route.
  *
- * - Returns 429 with Retry-After header when the bucket is exhausted.
- * - Transparently skips (passes all requests) in test environments:
- *   NODE_ENV === 'test' or process.env.VITEST is set.
+ * Each client (by IP address) gets its own bucket, so one busy or abusive
+ * client cannot use up the limit for everyone else. A larger shared bucket
+ * per route still caps the total, in case a client rotates addresses.
+ *
+ * Buckets live in this server instance's memory, so on serverless hosting
+ * each instance keeps its own counts: the limit is best-effort, not exact.
+ *
+ * Rate limiting is skipped in tests (NODE_ENV === 'test' or VITEST set)
+ * unless RATE_LIMIT_IN_TESTS is set, which the limiter's own tests use.
  */
 
 import { NextResponse } from 'next/server';
@@ -22,80 +28,116 @@ export interface RateLimitResult {
   response?: NextResponse;
 }
 
-export class TokenBucketRateLimiter {
-  private tokens: number;
-  private lastRefillMs: number;
-  private readonly capacity: number;
-  private readonly refillRatePerSecond: number;
+/** Clients tracked per route before the least recently used are dropped. */
+const MAX_TRACKED_CLIENTS = 5000;
 
-  constructor(options: RateLimiterOptions) {
-    this.capacity = options.capacity;
-    this.refillRatePerSecond = options.refillRatePerSecond;
+class Bucket {
+  tokens: number;
+  lastRefillMs: number;
+
+  constructor(private readonly options: RateLimiterOptions) {
     this.tokens = options.capacity;
     this.lastRefillMs = Date.now();
   }
 
-  /**
-   * Attempt to consume one token. Returns whether the request is allowed.
-   * In test environments all requests are allowed immediately.
-   */
-  consume(): RateLimitResult {
-    // Skip rate limiting in test environments
-    if (process.env.NODE_ENV === 'test' || process.env.VITEST) {
-      return { allowed: true };
-    }
-
-    this.refill();
-
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
-      return { allowed: true };
-    }
-
-    // Calculate seconds until a token is available again
-    const retryAfterSecs = Math.ceil(1 / this.refillRatePerSecond);
-
-    const response = NextResponse.json(
-      {
-        success: false,
-        error: 'Too Many Requests — rate limit exceeded. Please wait before retrying.',
-        retryAfterSeconds: retryAfterSecs,
-      },
-      {
-        status: 429,
-        headers: {
-          'Retry-After': String(retryAfterSecs),
-          'X-RateLimit-Limit': String(this.capacity),
-          'X-RateLimit-Remaining': '0',
-        },
-      }
-    );
-
-    return { allowed: false, response };
-  }
-
-  private refill(): void {
-    const nowMs = Date.now();
-    const elapsedSecs = (nowMs - this.lastRefillMs) / 1000;
-    const tokensToAdd = elapsedSecs * this.refillRatePerSecond;
-    this.tokens = Math.min(this.capacity, this.tokens + tokensToAdd);
-    this.lastRefillMs = nowMs;
+  take(): boolean {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefillMs) / 1000;
+    this.tokens = Math.min(this.options.capacity, this.tokens + elapsed * this.options.refillRatePerSecond);
+    this.lastRefillMs = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
   }
 }
 
 /**
- * Convenience factory for common API rate limits.
- * - 'standard': 20 requests burst, 10/s refill  (most API endpoints)
- * - 'orders':   10 requests burst, 2/s refill    (POST /api/orders — heavier ops)
- * - 'vendor':   30 requests burst, 15/s refill   (vendor kiosk endpoints)
+ * The client's address. Amplify Hosting sits behind CloudFront, which puts
+ * the viewer's address first in X-Forwarded-For. A client can add its own
+ * entries, so this is good enough to separate ordinary clients, not to
+ * identify an attacker; the shared bucket covers that case.
+ */
+export function clientKey(request?: Request | { headers: Headers }): string {
+  if (!request) return 'unknown';
+  const forwarded = request.headers.get('x-forwarded-for');
+  const first = forwarded?.split(',')[0]?.trim();
+  return first || request.headers.get('x-real-ip') || 'unknown';
+}
+
+export class TokenBucketRateLimiter {
+  private readonly perClient = new Map<string, Bucket>();
+  private readonly shared: Bucket;
+
+  constructor(
+    private readonly options: RateLimiterOptions,
+    /** The route-wide bucket is this many times larger than a client's. */
+    sharedMultiplier = 50
+  ) {
+    this.shared = new Bucket({
+      capacity: options.capacity * sharedMultiplier,
+      refillRatePerSecond: options.refillRatePerSecond * sharedMultiplier,
+    });
+  }
+
+  /** Take one token for this request's client. */
+  consume(request?: Request | { headers: Headers }): RateLimitResult {
+    if ((process.env.NODE_ENV === 'test' || process.env.VITEST) && !process.env.RATE_LIMIT_IN_TESTS) {
+      return { allowed: true };
+    }
+
+    const key = clientKey(request);
+    let bucket = this.perClient.get(key);
+    if (bucket) {
+      // Re-insert so the Map's order tracks recent use.
+      this.perClient.delete(key);
+    } else {
+      bucket = new Bucket(this.options);
+      if (this.perClient.size >= MAX_TRACKED_CLIENTS) {
+        const oldest = this.perClient.keys().next().value;
+        if (oldest !== undefined) this.perClient.delete(oldest);
+      }
+    }
+    this.perClient.set(key, bucket);
+
+    if (bucket.take() && this.shared.take()) {
+      return { allowed: true };
+    }
+
+    const retryAfterSecs = Math.ceil(1 / this.options.refillRatePerSecond);
+    return {
+      allowed: false,
+      response: NextResponse.json(
+        {
+          success: false,
+          error: 'Too many requests. Wait a moment and try again.',
+          retryAfterSeconds: retryAfterSecs,
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(retryAfterSecs),
+            'X-RateLimit-Limit': String(this.options.capacity),
+            'X-RateLimit-Remaining': '0',
+          },
+        }
+      ),
+    };
+  }
+}
+
+/**
+ * Presets, per client:
+ * - 'standard': 20 burst, 10/s (reads and polling)
+ * - 'orders':   10 burst, 2/s  (placing orders and payments)
+ * - 'vendor':   30 burst, 15/s (staff terminal)
  */
 export function createRateLimiter(
   preset: 'standard' | 'orders' | 'vendor' = 'standard'
 ): TokenBucketRateLimiter {
   const presets: Record<string, RateLimiterOptions> = {
     standard: { capacity: 20, refillRatePerSecond: 10 },
-    orders:   { capacity: 10, refillRatePerSecond: 2 },
-    vendor:   { capacity: 30, refillRatePerSecond: 15 },
+    orders: { capacity: 10, refillRatePerSecond: 2 },
+    vendor: { capacity: 30, refillRatePerSecond: 15 },
   };
   return new TokenBucketRateLimiter(presets[preset]);
 }

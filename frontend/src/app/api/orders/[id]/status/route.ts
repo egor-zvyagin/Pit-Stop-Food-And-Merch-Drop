@@ -95,7 +95,7 @@ export async function PATCH(
   const logger = createRequestLogger({ requestId, route: `/api/orders/${id}/status`, method: 'PATCH' });
 
   // Rate Limiting
-  const limit = rateLimiter.consume();
+  const limit = rateLimiter.consume(request);
   if (!limit.allowed && limit.response) {
     logger.log({ status: 429, error: 'Rate limit exceeded' });
     return limit.response;

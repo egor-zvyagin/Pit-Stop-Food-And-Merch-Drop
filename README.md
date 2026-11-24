@@ -152,8 +152,9 @@ Shared pieces live in `frontend/src/components/ui/kit.tsx` and are described in 
 - **Allergens and dietary labels.** Written for this sample menu, not supplied by a kitchen.
 
 **Known limits**
-- Rate limiting and payment idempotency keys are held in memory per server instance, so they are best-effort on serverless.
-- The server's rewards history and "points already awarded" check are also per instance.
+- Rate limiting is per client (by IP address) but counted in each server instance's memory, so on serverless it is best-effort, not exact.
+- Payment idempotency keys and the "points already awarded" check are stored in DynamoDB, so they hold across server instances. In local mode they live in memory.
+- The server's rewards history is still kept per instance.
 - A fan is identified by ticket code alone, and the collection PIN is four digits.
 - Tests run on the in-memory store. The DynamoDB code path is tested with a stubbed client, not against a real table.
 - The GitHub Actions deployment role can manage IAM more broadly than this project needs.
