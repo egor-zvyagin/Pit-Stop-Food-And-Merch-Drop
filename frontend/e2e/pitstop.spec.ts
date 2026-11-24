@@ -195,3 +195,34 @@ test.describe('Pit Stop v3.0: Tablet Kiosk Vendor Flow', () => {
     await expect(syncBadge).toBeVisible();
   });
 });
+
+test.describe('Pit Stop: Offline app shell', () => {
+  test('fan app and vendor terminal still open with no connection after one online visit', async ({ page, context }) => {
+    // 1. First visit online: the service worker installs and caches the shell
+    await page.goto('/');
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+    });
+    await page.waitForFunction(async () => {
+      const cache = await caches.open('pitstop-cache-v2');
+      return Boolean(await cache.match('/vendor'));
+    });
+    // Second load is served through the worker, which caches the JS and CSS
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    await page.goto('/vendor');
+    await page.waitForLoadState('networkidle');
+
+    // 2. Connection drops
+    await context.setOffline(true);
+
+    await page.goto('/');
+    await expect(page).toHaveTitle(/Pit Stop/i);
+    await expect(page.getByRole('button', { name: /Simulate Trackside|Simulate/i }).first()).toBeVisible();
+
+    await page.goto('/vendor');
+    await expect(page.getByPlaceholder(/PIN/i).first()).toBeVisible();
+
+    await context.setOffline(false);
+  });
+});
